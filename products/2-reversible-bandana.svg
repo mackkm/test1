@@ -1,0 +1,39 @@
+<svg viewBox="0 0 1200 1200" xmlns="http://www.w3.org/2000/svg">
+  <!-- White background -->
+  <rect width="1200" height="1200" fill="#f8f8f8"/>
+
+  <!-- Shadow -->
+  <ellipse cx="600" cy="1050" rx="400" ry="80" fill="#000000" opacity="0.1"/>
+
+  <!-- Bandana triangle - primary color -->
+  <polygon points="600,250 950,850 250,850" fill="#E8B4D9" stroke="#D98BC6" stroke-width="2"/>
+
+  <!-- Pattern on one side -->
+  <circle cx="600" cy="500" r="40" fill="#8B4789" opacity="0.6"/>
+  <circle cx="550" cy="650" r="35" fill="#8B4789" opacity="0.6"/>
+  <circle cx="650" cy="650" r="35" fill="#8B4789" opacity="0.6"/>
+  <circle cx="520" cy="750" r="30" fill="#8B4789" opacity="0.6"/>
+  <circle cx="680" cy="750" r="30" fill="#8B4789" opacity="0.6"/>
+
+  <!-- Personalization text area -->
+  <g>
+    <text x="600" y="420" font-size="24" text-anchor="middle" font-family="Georgia, serif" fill="#8B4789" font-style="italic">
+      Max
+    </text>
+    <line x1="480" y1="440" x2="720" y2="440" stroke="#8B4789" stroke-width="2" opacity="0.5"/>
+  </g>
+
+  <!-- Fold/crease effect -->
+  <path d="M 600 250 L 600 850" stroke="#C67BA4" stroke-width="3" fill="none" opacity="0.4"/>
+
+  <!-- Shine/highlight -->
+  <ellipse cx="500" cy="400" rx="80" ry="60" fill="#FFFFFF" opacity="0.2"/>
+
+  <!-- Product name -->
+  <text x="600" y="950" font-size="48" font-weight="bold" text-anchor="middle" font-family="Arial, sans-serif" fill="#333333">
+    Reversible Pet Bandana
+  </text>
+  <text x="600" y="1010" font-size="36" text-anchor="middle" font-family="Arial, sans-serif" fill="#D98BC6" font-weight="bold">
+    $24.00
+  </text>
+</svg>

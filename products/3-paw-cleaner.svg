@@ -1,0 +1,42 @@
+<svg viewBox="0 0 1200 1200" xmlns="http://www.w3.org/2000/svg">
+  <!-- White background -->
+  <rect width="1200" height="1200" fill="#f8f8f8"/>
+
+  <!-- Shadow -->
+  <ellipse cx="600" cy="1050" rx="350" ry="80" fill="#000000" opacity="0.1"/>
+
+  <!-- Cup body - cylindrical -->
+  <ellipse cx="600" cy="350" rx="180" ry="60" fill="#D4A5D9" opacity="0.8"/>
+  <rect x="420" y="350" width="360" height="280" fill="#C999D9"/>
+  <ellipse cx="600" cy="630" rx="180" ry="60" fill="#B87DC9"/>
+
+  <!-- Cup rim -->
+  <ellipse cx="600" cy="350" rx="185" ry="65" fill="none" stroke="#A861B3" stroke-width="3"/>
+
+  <!-- Interior brush texture -->
+  <g opacity="0.6">
+    <line x1="480" y1="380" x2="480" y2="600" stroke="#8B4789" stroke-width="4"/>
+    <line x1="520" y1="380" x2="520" y2="600" stroke="#8B4789" stroke-width="4"/>
+    <line x1="560" y1="380" x2="560" y2="600" stroke="#8B4789" stroke-width="4"/>
+    <line x1="600" y1="380" x2="600" y2="600" stroke="#8B4789" stroke-width="4"/>
+    <line x1="640" y1="380" x2="640" y2="600" stroke="#8B4789" stroke-width="4"/>
+    <line x1="680" y1="380" x2="680" y2="600" stroke="#8B4789" stroke-width="4"/>
+    <line x1="720" y1="380" x2="720" y2="600" stroke="#8B4789" stroke-width="4"/>
+  </g>
+
+  <!-- Water splash effect -->
+  <circle cx="550" cy="300" r="25" fill="#87CEEB" opacity="0.5"/>
+  <circle cx="650" cy="280" r="20" fill="#87CEEB" opacity="0.5"/>
+  <circle cx="600" cy="320" r="15" fill="#87CEEB" opacity="0.4"/>
+
+  <!-- Highlight -->
+  <ellipse cx="520" cy="420" rx="60" ry="100" fill="#FFFFFF" opacity="0.2"/>
+
+  <!-- Product name -->
+  <text x="600" y="900" font-size="48" font-weight="bold" text-anchor="middle" font-family="Arial, sans-serif" fill="#333333">
+    Quick-Dip Paw Cleaner
+  </text>
+  <text x="600" y="960" font-size="36" text-anchor="middle" font-family="Arial, sans-serif" fill="#C999D9" font-weight="bold">
+    $24.00
+  </text>
+</svg>

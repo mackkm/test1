@@ -1,0 +1,54 @@
+<svg viewBox="0 0 1200 1200" xmlns="http://www.w3.org/2000/svg">
+  <!-- White background -->
+  <rect width="1200" height="1200" fill="#f8f8f8"/>
+
+  <!-- Shadow -->
+  <ellipse cx="600" cy="1050" rx="400" ry="80" fill="#000000" opacity="0.1"/>
+
+  <!-- T-shirt body -->
+  <rect x="300" y="350" width="600" height="450" rx="20" fill="#E8E8E8" stroke="#999999" stroke-width="2"/>
+
+  <!-- Left sleeve -->
+  <rect x="150" y="380" width="150" height="180" rx="15" fill="#E8E8E8" stroke="#999999" stroke-width="2"/>
+
+  <!-- Right sleeve -->
+  <rect x="900" y="380" width="150" height="180" rx="15" fill="#E8E8E8" stroke="#999999" stroke-width="2"/>
+
+  <!-- Neckline -->
+  <circle cx="600" cy="350" r="70" fill="#f8f8f8" stroke="#999999" stroke-width="2"/>
+
+  <!-- Personalized text on chest -->
+  <g>
+    <rect x="380" y="520" width="440" height="120" rx="10" fill="#FFF5F7" opacity="0.8"/>
+    <text x="600" y="560" font-size="32" font-weight="bold" text-anchor="middle" font-family="Georgia, serif" fill="#E74C8C">
+      Bailey
+    </text>
+    <text x="600" y="600" font-size="20" text-anchor="middle" font-family="Arial, sans-serif" fill="#999999">
+      Personalized Dog Tee
+    </text>
+  </g>
+
+  <!-- Fabric texture -->
+  <g opacity="0.1">
+    <circle cx="400" cy="400" r="3" fill="#333333"/>
+    <circle cx="450" cy="420" r="3" fill="#333333"/>
+    <circle cx="500" cy="410" r="3" fill="#333333"/>
+    <circle cx="550" cy="430" r="3" fill="#333333"/>
+    <circle cx="600" cy="420" r="3" fill="#333333"/>
+    <circle cx="650" cy="410" r="3" fill="#333333"/>
+    <circle cx="700" cy="430" r="3" fill="#333333"/>
+    <circle cx="750" cy="420" r="3" fill="#333333"/>
+    <circle cx="800" cy="400" r="3" fill="#333333"/>
+  </g>
+
+  <!-- Fold line -->
+  <path d="M 600 350 L 600 800" stroke="#CCCCCC" stroke-width="1" opacity="0.5"/>
+
+  <!-- Product name -->
+  <text x="600" y="950" font-size="48" font-weight="bold" text-anchor="middle" font-family="Arial, sans-serif" fill="#333333">
+    Pup Tee
+  </text>
+  <text x="600" y="1010" font-size="36" text-anchor="middle" font-family="Arial, sans-serif" fill="#E74C8C" font-weight="bold">
+    $28.00
+  </text>
+</svg>

@@ -1,0 +1,56 @@
+<svg viewBox="0 0 1200 1200" xmlns="http://www.w3.org/2000/svg">
+  <!-- White background -->
+  <rect width="1200" height="1200" fill="#f8f8f8"/>
+
+  <!-- Shadow -->
+  <ellipse cx="600" cy="1050" rx="400" ry="80" fill="#000000" opacity="0.1"/>
+
+  <!-- Crewneck body -->
+  <rect x="280" y="340" width="640" height="500" rx="25" fill="#D4C5B9" stroke="#A8998E" stroke-width="2"/>
+
+  <!-- Left sleeve -->
+  <rect x="120" y="370" width="160" height="200" rx="20" fill="#D4C5B9" stroke="#A8998E" stroke-width="2"/>
+
+  <!-- Right sleeve -->
+  <rect x="920" y="370" width="160" height="200" rx="20" fill="#D4C5B9" stroke="#A8998E" stroke-width="2"/>
+
+  <!-- Crew neckline -->
+  <ellipse cx="600" cy="340" rx="80" ry="50" fill="#C8B8AC" stroke="#A8998E" stroke-width="2"/>
+  <ellipse cx="600" cy="340" rx="75" ry="45" fill="#D4C5B9"/>
+
+  <!-- Embroidered personalization on chest -->
+  <g>
+    <text x="600" y="550" font-size="28" font-weight="bold" text-anchor="middle" font-family="Georgia, serif" fill="#8B7355">
+      Dog Parent to
+    </text>
+    <text x="600" y="600" font-size="36" font-weight="bold" text-anchor="middle" font-family="Georgia, serif" fill="#D2691E">
+      Charlie
+    </text>
+    <line x1="420" y1="620" x2="780" y2="620" stroke="#D2691E" stroke-width="2" opacity="0.6"/>
+  </g>
+
+  <!-- Fabric texture/knit pattern -->
+  <g opacity="0.08" stroke="#333333" stroke-width="1">
+    <line x1="300" y1="350" x2="900" y2="350"/>
+    <line x1="290" y1="380" x2="910" y2="380"/>
+    <line x1="285" y1="410" x2="915" y2="410"/>
+    <line x1="285" y1="440" x2="915" y2="440"/>
+  </g>
+
+  <!-- Highlight showing fabric quality -->
+  <ellipse cx="450" cy="420" rx="80" ry="120" fill="#FFFFFF" opacity="0.15"/>
+
+  <!-- Ribbed cuff on sleeves -->
+  <g stroke="#A8998E" stroke-width="2" opacity="0.5">
+    <line x1="120" y1="560" x2="280" y2="560"/>
+    <line x1="120" y1="575" x2="280" y2="575"/>
+  </g>
+
+  <!-- Product name -->
+  <text x="600" y="950" font-size="48" font-weight="bold" text-anchor="middle" font-family="Arial, sans-serif" fill="#333333">
+    Dog Parent Crewneck
+  </text>
+  <text x="600" y="1010" font-size="36" text-anchor="middle" font-family="Arial, sans-serif" fill="#D2691E" font-weight="bold">
+    $42.00
+  </text>
+</svg>

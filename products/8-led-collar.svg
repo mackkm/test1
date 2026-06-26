@@ -1,0 +1,90 @@
+<svg viewBox="0 0 1200 1200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Black background (to show LED glow) -->
+  <rect width="1200" height="1200" fill="#0a0a0a"/>
+
+  <!-- Glow background blur effect -->
+  <defs>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="8" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <radialGradient id="ledGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#00FF00;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#00AA00;stop-opacity:0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- LED Glow collar - circular arrangement -->
+  <!-- Collar band -->
+  <circle cx="600" cy="600" r="300" fill="none" stroke="#1a1a1a" stroke-width="50"/>
+  <circle cx="600" cy="600" r="280" fill="none" stroke="#2a2a2a" stroke-width="8" opacity="0.6"/>
+
+  <!-- LED lights - bright glowing points -->
+  <g filter="url(#glow)">
+    <!-- Left LED -->
+    <circle cx="350" cy="600" r="25" fill="#00FF00" opacity="0.9"/>
+    <!-- Top LED -->
+    <circle cx="600" cy="350" r="25" fill="#00FF00" opacity="0.9"/>
+    <!-- Right LED -->
+    <circle cx="850" cy="600" r="25" fill="#00FF00" opacity="0.9"/>
+    <!-- Bottom LED -->
+    <circle cx="600" cy="850" r="25" fill="#00FF00" opacity="0.9"/>
+
+    <!-- Additional LEDs between main ones -->
+    <circle cx="470" cy="430" r="20" fill="#00DD00" opacity="0.85"/>
+    <circle cx="730" cy="430" r="20" fill="#00DD00" opacity="0.85"/>
+    <circle cx="730" cy="770" r="20" fill="#00DD00" opacity="0.85"/>
+    <circle cx="470" cy="770" r="20" fill="#00DD00" opacity="0.85"/>
+  </g>
+
+  <!-- Glow halos around LEDs -->
+  <g opacity="0.4">
+    <circle cx="350" cy="600" r="60" fill="#00FF00"/>
+    <circle cx="600" cy="350" r="60" fill="#00FF00"/>
+    <circle cx="850" cy="600" r="60" fill="#00FF00"/>
+    <circle cx="600" cy="850" r="60" fill="#00FF00"/>
+  </g>
+
+  <!-- Collar texture/stitching -->
+  <g stroke="#333333" stroke-width="1" opacity="0.4" fill="none">
+    <circle cx="600" cy="600" r="310"/>
+    <circle cx="600" cy="600" r="290"/>
+  </g>
+
+  <!-- Safety feature text -->
+  <text x="600" y="600" font-size="24" text-anchor="middle" font-family="Arial, sans-serif" fill="#00FF00" font-weight="bold">
+    SAFETY
+  </text>
+
+  <!-- Bottom section with unlit version for comparison -->
+  <g opacity="0.8" transform="translate(0, 150)">
+    <!-- Unlit collar background -->
+    <rect x="100" y="800" width="1000" height="150" rx="10" fill="#1a1a1a" stroke="#333333" stroke-width="2"/>
+
+    <!-- Unlit collar display -->
+    <circle cx="600" cy="875" r="80" fill="none" stroke="#555555" stroke-width="25"/>
+    <circle cx="600" cy="875" r="58" fill="none" stroke="#333333" stroke-width="3"/>
+
+    <!-- Unlit LED dots (dark) -->
+    <circle cx="520" cy="875" r="8" fill="#444444"/>
+    <circle cx="600" cy="815" r="8" fill="#444444"/>
+    <circle cx="680" cy="875" r="8" fill="#444444"/>
+    <circle cx="600" cy="935" r="8" fill="#444444"/>
+
+    <!-- Unlit label -->
+    <text x="750" y="885" font-size="20" font-family="Arial, sans-serif" fill="#888888">
+      Unlit Design
+    </text>
+  </g>
+
+  <!-- Product name -->
+  <text x="600" y="120" font-size="48" font-weight="bold" text-anchor="middle" font-family="Arial, sans-serif" fill="#00FF00">
+    LED Glow Safety Collar
+  </text>
+  <text x="600" y="170" font-size="36" text-anchor="middle" font-family="Arial, sans-serif" fill="#00DD00" font-weight="bold">
+    $26.00
+  </text>
+</svg>
