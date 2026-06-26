@@ -7,7 +7,8 @@ Complete step-by-step instructions for uploading products, images, and data to y
 ## Prerequisites
 
 Before starting, you'll need:
-- ✓ Shopify account access to pawlettes.myshopify.com
+- ✓ Shopify account access (admin at pawlettes.myshopify.com/admin)
+- ✓ Storefront live at pawlette.shop
 - ✓ Admin dashboard access
 - ✓ Product images (SVG mockups or converted PNGs)
 - ✓ Product data (PRODUCT_CATALOG.md)
@@ -263,7 +264,7 @@ Before going live:
 ## Step 12: Launch & Promote
 
 1. Set store to **Public** (Settings → General)
-2. Configure domain (recommend: pawlettes.com)
+2. Verify custom domain is connected (pawlette.shop) under Settings → Domains
 3. Enable SSL/HTTPS
 4. Set up social media sharing
 5. Create launch announcement email
