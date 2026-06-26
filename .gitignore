@@ -2,3 +2,8 @@ auth.*.json
 *.tfvars
 .terraform*
 terraform.tfstate*
+
+# Generated special diet forms
+*_diet_form_*.txt
+odsp_special_diet_form_*.txt
+generated_forms/
