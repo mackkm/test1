@@ -1,0 +1,98 @@
+╔══════════════════════════════════════════════════════════════════════╗
+║                      OLLAMA QUICK START GUIDE                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+OPTION 1: One-Line Install (macOS/Linux)
+────────────────────────────────────────────────────────────────────────
+
+Just copy and paste this command in your terminal:
+
+curl -fsSL https://github.com/ollama/ollama/releases/download/v0.30.10/install.sh | sh && sleep 2 && nohup ollama serve > /tmp/ollama.log 2>&1 & sleep 3 && ollama run llama2
+
+
+OPTION 2: Using the Script
+────────────────────────────────────────────────────────────────────────
+
+macOS/Linux:
+$ chmod +x run_ollama.sh
+$ ./run_ollama.sh
+
+Windows:
+> install_and_run_ollama.bat
+
+
+OPTION 3: Manual Setup
+────────────────────────────────────────────────────────────────────────
+
+1. Visit https://ollama.ai and download
+2. Install the application
+3. Open terminal/command prompt and run:
+
+   # Terminal 1: Start the server
+   ollama serve
+
+   # Terminal 2: Run a model
+   ollama run llama2
+
+
+WHAT HAPPENS NEXT:
+────────────────────────────────────────────────────────────────────────
+
+1. Ollama gets installed
+2. The server starts (runs in background)
+3. The llama2 model downloads (~4GB, takes a few minutes)
+4. You can chat with llama2 interactively
+
+You can type prompts and the AI will respond. Type "exit" to quit.
+
+
+AVAILABLE MODELS TO TRY:
+────────────────────────────────────────────────────────────────────────
+
+In a new terminal, after server is running:
+
+ollama run llama2          # Meta's Llama 2 (7B, ~4GB) - Recommended
+ollama run mistral         # Mistral 7B (~4GB)
+ollama run orca-mini       # Faster, smaller (~3GB)
+ollama run dolphin-phi     # Small and quick (~2GB)
+ollama run neural-chat     # Good for conversations
+
+
+USEFUL COMMANDS:
+────────────────────────────────────────────────────────────────────────
+
+# List installed models
+ollama list
+
+# Pull a model without running it
+ollama pull mistral
+
+# Remove a model
+ollama rm llama2
+
+# Check server status
+curl http://localhost:11434
+
+
+TROUBLESHOOTING:
+────────────────────────────────────────────────────────────────────────
+
+Q: Script won't run?
+A: chmod +x run_ollama.sh
+
+Q: Permission denied on Linux?
+A: sudo is needed for installation. The script will ask for password.
+
+Q: Server won't start?
+A: Check logs: tail -f /tmp/ollama.log
+
+Q: Downloads keep failing?
+A: Check internet connection and available disk space (need ~10GB)
+
+Q: Out of memory?
+A: Try smaller model: ollama run orca-mini
+   Or close other applications
+
+Q: How do I stop the server?
+A: killall ollama
+
