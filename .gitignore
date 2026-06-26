@@ -2,3 +2,9 @@ auth.*.json
 *.tfvars
 .terraform*
 terraform.tfstate*
+
+# Node dependencies
+node_modules/
+
+# Generated product images (regenerate with: npm run convert-images)
+products/png-exports/
