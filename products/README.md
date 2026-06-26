@@ -19,6 +19,11 @@ This directory contains product mockup images for the Pawlettes Shopify store. T
 | 6 | No-Pull Walk Harness | `6-no-pull-harness.svg` | $32.00 |
 | 7 | Magic Deshedding Glove | `7-deshedding-glove.svg` | $16.00 |
 | 8 | LED Glow Safety Collar | `8-led-collar.svg` | $26.00 |
+| 9 | Custom Pet Portrait | `9-custom-portrait.svg` | $35.00 |
+| 10 | Calming Donut Bed | `10-calming-donut-bed.svg` | $48.00 |
+| 11 | Snuffle Mat Puzzle Feeder | `11-snuffle-mat.svg` | $29.00 |
+| 12 | Travel Bowl & Water Bottle | `12-travel-bottle.svg` | $22.00 |
+| 13 | Personalized Pet ID Tag | `13-id-tag.svg` | $14.00 |
 
 ## File Formats
 

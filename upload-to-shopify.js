@@ -154,6 +154,72 @@ const PRODUCTS = [
       { option: 'Navy', sku: 'PAWL-008-NAVY', price: '26.00', weight: 0.16 },
     ],
   },
+  {
+    title: 'Custom Pet Portrait',
+    productType: 'Personalized & Gifts',
+    tags: ['custom portrait', 'pet portrait', 'personalized', 'gift'],
+    descriptionHtml:
+      '<p>Your best friend, immortalized. Upload a favorite photo and we hand-craft a custom illustrated portrait — printed to order on premium paper, ready to frame.</p><ul><li>Made from your uploaded photo</li><li>Premium print, made the day you order</li><li>A keepsake (or the perfect gift)</li></ul>',
+    image: '9-custom-portrait.png',
+    optionName: 'Format',
+    variants: [
+      { option: 'Print', sku: 'PAWL-009-PRINT', price: '35.00', weight: 0.2 },
+      { option: 'Mug', sku: 'PAWL-009-MUG', price: '28.00', weight: 0.8 },
+      { option: 'Tote', sku: 'PAWL-009-TOTE', price: '30.00', weight: 0.3 },
+    ],
+  },
+  {
+    title: 'Calming Donut Bed',
+    productType: 'Comfort & Rest',
+    tags: ['dog bed', 'calming bed', 'donut bed', 'anxiety'],
+    descriptionHtml:
+      '<p>The hug your dog curls up in. The plush raised rim supports the head and neck for deep, anxiety-easing sleep, while the soft filled center cradles them like a cloud.</p><ul><li>Faux-fur, machine washable</li><li>Raised rim for sense of security</li><li>Non-slip base</li></ul>',
+    image: '10-calming-donut-bed.png',
+    optionName: 'Size',
+    variants: [
+      { option: 'Small', sku: 'PAWL-010-S', price: '48.00', weight: 1.8 },
+      { option: 'Medium', sku: 'PAWL-010-M', price: '58.00', weight: 2.4 },
+      { option: 'Large', sku: 'PAWL-010-L', price: '68.00', weight: 3.2 },
+    ],
+  },
+  {
+    title: 'Snuffle Mat Puzzle Feeder',
+    productType: 'Feeding & Mealtime',
+    tags: ['snuffle mat', 'puzzle feeder', 'enrichment', 'slow feeding'],
+    descriptionHtml:
+      "<p>Turn mealtime into a nose-led treasure hunt. Hide kibble or treats in the soft fabric strips and let your dog's natural foraging instincts do the rest — calming, tiring, and fun.</p><ul><li>Engages natural foraging instincts</li><li>Reduces boredom and anxiety</li><li>Machine washable</li></ul>",
+    image: '11-snuffle-mat.png',
+    optionName: 'Color',
+    variants: [
+      { option: 'Teal', sku: 'PAWL-011-TEAL', price: '29.00', weight: 0.5 },
+    ],
+  },
+  {
+    title: 'Travel Bowl & Water Bottle',
+    productType: 'Travel & Outdoors',
+    tags: ['travel bottle', 'water bottle', 'portable bowl', 'outdoors'],
+    descriptionHtml:
+      '<p>Hydration on the go, no spills, no fuss. Press the button and water flows into the attached fold-out bowl; release and any unused water flows back in. Perfect for walks, hikes, and road trips.</p><ul><li>Leak-proof one-handed operation</li><li>Attached fold-out bowl</li><li>BPA-free, 19 oz capacity</li></ul>',
+    image: '12-travel-bottle.png',
+    optionName: 'Color',
+    variants: [
+      { option: 'Blue', sku: 'PAWL-012-BLUE', price: '22.00', weight: 0.4 },
+      { option: 'Pink', sku: 'PAWL-012-PINK', price: '22.00', weight: 0.4 },
+    ],
+  },
+  {
+    title: 'Personalized Pet ID Tag',
+    productType: 'Safety & Visibility',
+    tags: ['ID tag', 'personalized', 'pet tag', 'engraved'],
+    descriptionHtml:
+      "<p>Peace of mind they wear every day. Deep-engraved with your pet's name and your phone number so they're never truly lost. Durable, quiet, and won't fade.</p><ul><li>Custom laser engraving (both sides)</li><li>Rust-proof stainless / brass</li><li>Includes split ring</li></ul>",
+    image: '13-id-tag.png',
+    optionName: 'Shape',
+    variants: [
+      { option: 'Bone', sku: 'PAWL-013-BONE', price: '14.00', weight: 0.05 },
+      { option: 'Round', sku: 'PAWL-013-ROUND', price: '14.00', weight: 0.05 },
+    ],
+  },
 ];
 
 const PNG_DIR = path.join(__dirname, 'products', 'png-exports');
