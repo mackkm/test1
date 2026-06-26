@@ -224,7 +224,7 @@ const PRODUCTS = [
 
 const PNG_DIR = path.join(__dirname, 'products', 'png-exports');
 
-async function graphql(query, variables) {
+async function graphql(query, variables, attempt = 1) {
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: {
@@ -233,6 +233,14 @@ async function graphql(query, variables) {
     },
     body: JSON.stringify({ query, variables }),
   });
+
+  // Back off and retry on Shopify rate limiting (cost-based throttling).
+  if (res.status === 429 && attempt <= 5) {
+    const wait = 1000 * 2 ** (attempt - 1);
+    console.warn(`  …rate limited, retrying in ${wait}ms`);
+    await new Promise((r) => setTimeout(r, wait));
+    return graphql(query, variables, attempt + 1);
+  }
 
   if (!res.ok) {
     throw new Error(`HTTP ${res.status} ${res.statusText}: ${await res.text()}`);
