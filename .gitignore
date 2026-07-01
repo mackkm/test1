@@ -11,3 +11,6 @@ products/png-exports/
 
 # Skill image exports (regenerate via skill converter)
 png-exports/
+
+# Product image bundle (regenerable)
+pawlette-product-images.zip
