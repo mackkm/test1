@@ -1,0 +1,245 @@
+{% comment %}
+  Pawlette — Professional Interactive Homepage Section
+  Install: Online Store → Themes → Edit code → Sections → Add a new section
+  → name it "pawlette-home" → paste this whole file → Save.
+  Then in the Theme editor (Customize), add section "Pawlette Home" to the
+  homepage and configure via the settings panel (no code needed after this).
+{% endcomment %}
+
+<section class="pw-home">
+
+  <!-- ── Hero ─────────────────────────────────────────────── -->
+  <div class="pw-hero">
+    <div class="pw-hero__inner">
+      <p class="pw-hero__eyebrow">{{ section.settings.eyebrow }}</p>
+      <h1 class="pw-hero__title">{{ section.settings.heading }}</h1>
+      <p class="pw-hero__sub">{{ section.settings.subheading }}</p>
+      <div class="pw-hero__cta">
+        <a href="{{ section.settings.cta_link }}" class="pw-btn pw-btn--primary">{{ section.settings.cta_label }}</a>
+        <a href="{{ section.settings.cta2_link }}" class="pw-btn pw-btn--ghost">{{ section.settings.cta2_label }}</a>
+      </div>
+    </div>
+    <div class="pw-hero__paws" aria-hidden="true">
+      <span>🐾</span><span>🐾</span><span>🐾</span><span>🐾</span><span>🐾</span>
+    </div>
+  </div>
+
+  <!-- ── Trust bar ────────────────────────────────────────── -->
+  <div class="pw-trust">
+    <div class="pw-trust__item">🚚 Free shipping over $40</div>
+    <div class="pw-trust__item">✂️ Made to order, just for your pup</div>
+    <div class="pw-trust__item">💛 30-day satisfaction guarantee</div>
+    <div class="pw-trust__item">🔒 Secure checkout</div>
+  </div>
+
+  <!-- ── Featured products ────────────────────────────────── -->
+  {% assign col = collections[section.settings.collection] %}
+  {% if col != blank and col.products.size > 0 %}
+  <div class="pw-featured">
+    <h2 class="pw-h2">{{ section.settings.featured_title }}</h2>
+    <div class="pw-grid">
+      {% for product in col.products limit: section.settings.featured_count %}
+        <a class="pw-card" href="{{ product.url }}">
+          <div class="pw-card__media">
+            {% if product.featured_image %}
+              <img src="{{ product.featured_image | image_url: width: 600 }}"
+                   alt="{{ product.featured_image.alt | escape }}" loading="lazy"
+                   width="600" height="600">
+            {% endif %}
+            {% if product.compare_at_price > product.price %}
+              <span class="pw-card__badge">Sale</span>
+            {% endif %}
+            <span class="pw-card__quick">View →</span>
+          </div>
+          <h3 class="pw-card__title">{{ product.title }}</h3>
+          <p class="pw-card__price">
+            {{ product.price | money }}
+            {% if product.compare_at_price > product.price %}
+              <s>{{ product.compare_at_price | money }}</s>
+            {% endif %}
+          </p>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── Value props ──────────────────────────────────────── -->
+  <div class="pw-values">
+    <div class="pw-value" data-pw-reveal>
+      <div class="pw-value__icon">🎨</div>
+      <h3>Personalized</h3>
+      <p>Names, photos, colors — made uniquely for your best friend.</p>
+    </div>
+    <div class="pw-value" data-pw-reveal>
+      <div class="pw-value__icon">🌙</div>
+      <h3>Safety first</h3>
+      <p>Glow collars, no-pull harnesses, engraved ID tags. Seen &amp; safe.</p>
+    </div>
+    <div class="pw-value" data-pw-reveal>
+      <div class="pw-value__icon">🧠</div>
+      <h3>Enrichment</h3>
+      <p>Lick mats and snuffle mats that calm, engage, and tire happy dogs.</p>
+    </div>
+  </div>
+
+  <!-- ── Testimonials ─────────────────────────────────────── -->
+  <div class="pw-quotes">
+    <h2 class="pw-h2">{{ section.settings.quotes_title }}</h2>
+    <div class="pw-quotes__track" id="pwQuotes">
+      {% for block in section.blocks %}
+        <blockquote class="pw-quote {% if forloop.first %}is-active{% endif %}">
+          <p>“{{ block.settings.quote }}”</p>
+          <cite>— {{ block.settings.author }}</cite>
+        </blockquote>
+      {% endfor %}
+    </div>
+    <div class="pw-quotes__dots" id="pwDots"></div>
+  </div>
+
+  <!-- ── Newsletter ───────────────────────────────────────── -->
+  <div class="pw-news">
+    <h2 class="pw-h2">Join the pack 🐾</h2>
+    <p>10% off your first order + early access to new drops.</p>
+    {% form 'customer', class: 'pw-news__form' %}
+      <input type="hidden" name="contact[tags]" value="newsletter">
+      <input type="email" name="contact[email]" placeholder="you@email.com" required aria-label="Email">
+      <button type="submit" class="pw-btn pw-btn--primary">Get 10% off</button>
+    {% endform %}
+  </div>
+
+</section>
+
+<style>
+  .pw-home{--pw-ink:#2b2320;--pw-accent:#e07a5f;--pw-accent-2:#3d8e7e;--pw-bg:#fdf8f3;--pw-card:#ffffff;
+    font-family:inherit;color:var(--pw-ink);background:var(--pw-bg)}
+  .pw-h2{text-align:center;font-size:clamp(1.5rem,3vw,2.2rem);margin:0 0 1.5rem}
+  .pw-btn{display:inline-block;padding:.9rem 1.8rem;border-radius:999px;font-weight:700;text-decoration:none;
+    transition:transform .2s ease, box-shadow .2s ease;cursor:pointer;border:2px solid transparent}
+  .pw-btn--primary{background:var(--pw-accent);color:#fff}
+  .pw-btn--ghost{border-color:var(--pw-ink);color:var(--pw-ink);background:transparent}
+  .pw-btn:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(0,0,0,.15)}
+
+  .pw-hero{position:relative;padding:clamp(3rem,8vw,7rem) 1.5rem;text-align:center;overflow:hidden;
+    background:linear-gradient(160deg,#fdf1e7 0%,var(--pw-bg) 70%)}
+  .pw-hero__eyebrow{letter-spacing:.2em;text-transform:uppercase;font-size:.8rem;color:var(--pw-accent-2);font-weight:700}
+  .pw-hero__title{font-size:clamp(2rem,5.5vw,3.8rem);line-height:1.1;margin:.4em auto;max-width:16ch}
+  .pw-hero__sub{max-width:52ch;margin:0 auto 1.6rem;font-size:1.05rem;opacity:.85}
+  .pw-hero__cta{display:flex;gap:.8rem;justify-content:center;flex-wrap:wrap}
+  .pw-hero__paws{position:absolute;inset:0;pointer-events:none}
+  .pw-hero__paws span{position:absolute;font-size:1.6rem;opacity:.12;animation:pwFloat 9s ease-in-out infinite}
+  .pw-hero__paws span:nth-child(1){left:8%;top:20%}
+  .pw-hero__paws span:nth-child(2){left:85%;top:15%;animation-delay:1.5s}
+  .pw-hero__paws span:nth-child(3){left:15%;top:75%;animation-delay:3s}
+  .pw-hero__paws span:nth-child(4){left:75%;top:70%;animation-delay:4.5s}
+  .pw-hero__paws span:nth-child(5){left:50%;top:40%;animation-delay:6s}
+  @keyframes pwFloat{0%,100%{transform:translateY(0) rotate(-8deg)}50%{transform:translateY(-18px) rotate(8deg)}}
+
+  .pw-trust{display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;padding:1rem 1.5rem;
+    background:var(--pw-ink);color:#fff;font-size:.9rem}
+  .pw-trust__item{padding:.25rem .5rem}
+
+  .pw-featured{padding:clamp(2.5rem,6vw,5rem) 1.5rem;max-width:1200px;margin:0 auto}
+  .pw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:1.5rem}
+  .pw-card{background:var(--pw-card);border-radius:16px;overflow:hidden;text-decoration:none;color:inherit;
+    box-shadow:0 2px 10px rgba(0,0,0,.06);transition:transform .25s ease,box-shadow .25s ease}
+  .pw-card:hover{transform:translateY(-6px);box-shadow:0 14px 30px rgba(0,0,0,.14)}
+  .pw-card__media{position:relative;aspect-ratio:1/1;overflow:hidden}
+  .pw-card__media img{width:100%;height:100%;object-fit:cover;transition:transform .4s ease}
+  .pw-card:hover .pw-card__media img{transform:scale(1.06)}
+  .pw-card__badge{position:absolute;top:.75rem;left:.75rem;background:var(--pw-accent);color:#fff;
+    padding:.25rem .7rem;border-radius:999px;font-size:.75rem;font-weight:700}
+  .pw-card__quick{position:absolute;bottom:.75rem;right:.75rem;background:#fff;padding:.35rem .8rem;
+    border-radius:999px;font-size:.8rem;font-weight:700;opacity:0;transform:translateY(6px);transition:.25s ease}
+  .pw-card:hover .pw-card__quick{opacity:1;transform:translateY(0)}
+  .pw-card__title{font-size:1rem;margin:.9rem 1rem .2rem}
+  .pw-card__price{margin:0 1rem 1rem;font-weight:700}
+  .pw-card__price s{opacity:.5;font-weight:400;margin-left:.4rem}
+
+  .pw-values{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1.5rem;
+    max-width:1000px;margin:0 auto;padding:0 1.5rem clamp(2.5rem,6vw,5rem)}
+  .pw-value{text-align:center;padding:2rem 1.25rem;background:var(--pw-card);border-radius:16px;
+    box-shadow:0 2px 10px rgba(0,0,0,.06);opacity:0;transform:translateY(20px);transition:.6s ease}
+  .pw-value.is-in{opacity:1;transform:none}
+  .pw-value__icon{font-size:2.2rem;margin-bottom:.5rem}
+  .pw-value h3{margin:.2rem 0 .4rem}
+  .pw-value p{margin:0;opacity:.8;font-size:.95rem}
+
+  .pw-quotes{padding:0 1.5rem clamp(2.5rem,6vw,5rem);max-width:760px;margin:0 auto;text-align:center}
+  .pw-quote{display:none;margin:0;font-size:1.15rem;line-height:1.6}
+  .pw-quote.is-active{display:block;animation:pwFade .5s ease}
+  .pw-quote cite{display:block;margin-top:.8rem;font-style:normal;font-weight:700;color:var(--pw-accent-2)}
+  @keyframes pwFade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .pw-quotes__dots{display:flex;gap:.5rem;justify-content:center;margin-top:1.2rem}
+  .pw-quotes__dots button{width:.65rem;height:.65rem;border-radius:50%;border:none;background:#d8cfc6;cursor:pointer}
+  .pw-quotes__dots button.is-on{background:var(--pw-accent)}
+
+  .pw-news{background:var(--pw-accent-2);color:#fff;text-align:center;padding:clamp(2.5rem,6vw,4.5rem) 1.5rem}
+  .pw-news .pw-h2{color:#fff}
+  .pw-news__form{display:flex;gap:.6rem;justify-content:center;flex-wrap:wrap;margin-top:1.2rem}
+  .pw-news__form input[type=email]{padding:.9rem 1.2rem;border-radius:999px;border:none;min-width:min(320px,80vw)}
+</style>
+
+<script>
+  (function () {
+    // Scroll-reveal for value cards
+    var els = document.querySelectorAll('[data-pw-reveal]');
+    if ('IntersectionObserver' in window) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target); } });
+      }, { threshold: 0.2 });
+      els.forEach(function (el) { io.observe(el); });
+    } else { els.forEach(function (el) { el.classList.add('is-in'); }); }
+
+    // Testimonial rotator
+    var quotes = document.querySelectorAll('#pwQuotes .pw-quote');
+    var dots = document.getElementById('pwDots');
+    if (quotes.length > 1 && dots) {
+      var i = 0, timer;
+      quotes.forEach(function (_, n) {
+        var b = document.createElement('button');
+        b.setAttribute('aria-label', 'Testimonial ' + (n + 1));
+        if (n === 0) b.classList.add('is-on');
+        b.addEventListener('click', function () { show(n); restart(); });
+        dots.appendChild(b);
+      });
+      function show(n) {
+        quotes[i].classList.remove('is-active'); dots.children[i].classList.remove('is-on');
+        i = n % quotes.length;
+        quotes[i].classList.add('is-active'); dots.children[i].classList.add('is-on');
+      }
+      function restart() { clearInterval(timer); timer = setInterval(function () { show(i + 1); }, 5000); }
+      restart();
+    }
+  })();
+</script>
+
+{% schema %}
+{
+  "name": "Pawlette Home",
+  "settings": [
+    { "type": "text", "id": "eyebrow", "label": "Eyebrow", "default": "Made with love, worn with pride" },
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Everything your dog deserves." },
+    { "type": "textarea", "id": "subheading", "label": "Subheading", "default": "Personalized bandanas, custom portraits, glow-safe walk gear and calming enrichment — made to order for the best friend who never leaves your side." },
+    { "type": "text", "id": "cta_label", "label": "Primary button label", "default": "Shop the collection" },
+    { "type": "url", "id": "cta_link", "label": "Primary button link" },
+    { "type": "text", "id": "cta2_label", "label": "Secondary button label", "default": "Custom portraits" },
+    { "type": "url", "id": "cta2_link", "label": "Secondary button link" },
+    { "type": "collection", "id": "collection", "label": "Featured collection" },
+    { "type": "text", "id": "featured_title", "label": "Featured title", "default": "Fan favorites" },
+    { "type": "range", "id": "featured_count", "label": "Products to show", "min": 4, "max": 12, "step": 1, "default": 8 },
+    { "type": "text", "id": "quotes_title", "label": "Testimonials title", "default": "Happy tails" }
+  ],
+  "blocks": [
+    {
+      "type": "quote",
+      "name": "Testimonial",
+      "settings": [
+        { "type": "textarea", "id": "quote", "label": "Quote", "default": "The bandana with Milo's name on it is our most-complimented walk accessory. Quality is fantastic." },
+        { "type": "text", "id": "author", "label": "Author", "default": "Milo's mom" }
+      ]
+    }
+  ],
+  "presets": [ { "name": "Pawlette Home" } ]
+}
+{% endschema %}
