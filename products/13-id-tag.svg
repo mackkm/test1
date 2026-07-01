@@ -1,0 +1,25 @@
+<svg viewBox="0 0 1200 1200" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="1200" fill="#f8f8f8"/>
+  <ellipse cx="600" cy="880" rx="300" ry="60" fill="#000000" opacity="0.1"/>
+
+  <!-- Split ring -->
+  <circle cx="600" cy="320" r="55" fill="none" stroke="#C0C0C0" stroke-width="14"/>
+
+  <!-- Bone-shaped tag -->
+  <g fill="#E8C24A">
+    <circle cx="470" cy="470" r="70"/>
+    <circle cx="470" cy="560" r="70"/>
+    <circle cx="730" cy="470" r="70"/>
+    <circle cx="730" cy="560" r="70"/>
+    <rect x="470" y="450" width="260" height="130" fill="#E8C24A"/>
+  </g>
+  <!-- gold shading -->
+  <ellipse cx="540" cy="500" rx="90" ry="50" fill="#F2D777" opacity="0.6"/>
+
+  <!-- Engraved text -->
+  <text x="600" y="500" font-size="40" text-anchor="middle" font-family="Georgia, serif" fill="#7A5C12" font-weight="bold">BUDDY</text>
+  <text x="600" y="545" font-size="24" text-anchor="middle" font-family="Arial, sans-serif" fill="#7A5C12">555-0123</text>
+
+  <text x="600" y="780" font-size="48" font-weight="bold" text-anchor="middle" font-family="Arial, sans-serif" fill="#333333">Personalized Pet ID Tag</text>
+  <text x="600" y="840" font-size="36" text-anchor="middle" font-family="Arial, sans-serif" fill="#C79A2E" font-weight="bold">$14.00</text>
+</svg>

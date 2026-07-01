@@ -1,0 +1,43 @@
+<svg viewBox="0 0 1200 1200" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="1200" fill="#f8f8f8"/>
+  <ellipse cx="600" cy="800" rx="400" ry="80" fill="#000000" opacity="0.1"/>
+
+  <!-- Mat base -->
+  <rect x="250" y="300" width="700" height="450" rx="25" fill="#3E8E7E"/>
+
+  <!-- Snuffle fabric strips (rows of little tufts) -->
+  <g>
+    <!-- generate tufts -->
+    <g fill="#4CA98F">
+      <circle cx="320" cy="370" r="28"/><circle cx="400" cy="360" r="28"/><circle cx="480" cy="375" r="28"/>
+      <circle cx="560" cy="362" r="28"/><circle cx="640" cy="372" r="28"/><circle cx="720" cy="360" r="28"/>
+      <circle cx="800" cy="374" r="28"/><circle cx="880" cy="365" r="28"/>
+    </g>
+    <g fill="#5FB8A0">
+      <circle cx="360" cy="450" r="28"/><circle cx="440" cy="442" r="28"/><circle cx="520" cy="455" r="28"/>
+      <circle cx="600" cy="445" r="28"/><circle cx="680" cy="452" r="28"/><circle cx="760" cy="443" r="28"/>
+      <circle cx="840" cy="455" r="28"/>
+    </g>
+    <g fill="#3E8E7E">
+      <circle cx="320" cy="530" r="28"/><circle cx="400" cy="522" r="28"/><circle cx="480" cy="535" r="28"/>
+      <circle cx="560" cy="525" r="28"/><circle cx="640" cy="532" r="28"/><circle cx="720" cy="523" r="28"/>
+      <circle cx="800" cy="535" r="28"/><circle cx="880" cy="525" r="28"/>
+    </g>
+    <g fill="#4CA98F">
+      <circle cx="360" cy="610" r="28"/><circle cx="440" cy="602" r="28"/><circle cx="520" cy="615" r="28"/>
+      <circle cx="600" cy="605" r="28"/><circle cx="680" cy="612" r="28"/><circle cx="760" cy="603" r="28"/>
+      <circle cx="840" cy="615" r="28"/>
+    </g>
+    <g fill="#5FB8A0">
+      <circle cx="320" cy="690" r="28"/><circle cx="400" cy="682" r="28"/><circle cx="480" cy="695" r="28"/>
+      <circle cx="560" cy="685" r="28"/><circle cx="640" cy="692" r="28"/><circle cx="720" cy="683" r="28"/>
+      <circle cx="800" cy="695" r="28"/><circle cx="880" cy="685" r="28"/>
+    </g>
+  </g>
+
+  <!-- A hidden treat peeking out -->
+  <circle cx="600" cy="525" r="14" fill="#C97B3C"/>
+
+  <text x="600" y="900" font-size="48" font-weight="bold" text-anchor="middle" font-family="Arial, sans-serif" fill="#333333">Snuffle Mat Puzzle Feeder</text>
+  <text x="600" y="960" font-size="36" text-anchor="middle" font-family="Arial, sans-serif" fill="#3E8E7E" font-weight="bold">$29.00</text>
+</svg>

@@ -1,0 +1,14 @@
+{
+  "name": "pawlettes-store-kit",
+  "version": "1.0.0",
+  "description": "Product assets and Shopify/Meta launch tooling for the Pawlettes store (pawlette.shop)",
+  "private": true,
+  "scripts": {
+    "convert-images": "node convert-svgs-to-png.js",
+    "upload:dry-run": "node upload-to-shopify.js --dry-run",
+    "upload": "node upload-to-shopify.js"
+  },
+  "dependencies": {
+    "sharp": "^0.35.2"
+  }
+}

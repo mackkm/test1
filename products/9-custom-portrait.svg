@@ -1,0 +1,36 @@
+<svg viewBox="0 0 1200 1200" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="1200" fill="#f8f8f8"/>
+  <ellipse cx="600" cy="1050" rx="380" ry="70" fill="#000000" opacity="0.1"/>
+
+  <!-- Picture frame -->
+  <rect x="320" y="200" width="560" height="660" rx="8" fill="#8B5A2B" stroke="#5C3A1A" stroke-width="6"/>
+  <rect x="350" y="230" width="500" height="600" rx="4" fill="#FFFFFF"/>
+
+  <!-- Portrait background -->
+  <rect x="370" y="250" width="460" height="560" fill="#FCE8D5"/>
+
+  <!-- Stylized dog portrait -->
+  <!-- Head -->
+  <ellipse cx="600" cy="520" rx="150" ry="160" fill="#C98A4B"/>
+  <!-- Ears -->
+  <ellipse cx="470" cy="450" rx="50" ry="110" fill="#A66A2E" transform="rotate(-25 470 450)"/>
+  <ellipse cx="730" cy="450" rx="50" ry="110" fill="#A66A2E" transform="rotate(25 730 450)"/>
+  <!-- Snout -->
+  <ellipse cx="600" cy="600" rx="80" ry="70" fill="#E0AE73"/>
+  <!-- Nose -->
+  <ellipse cx="600" cy="585" rx="28" ry="20" fill="#3A2A1A"/>
+  <!-- Eyes -->
+  <circle cx="545" cy="490" r="22" fill="#3A2A1A"/>
+  <circle cx="655" cy="490" r="22" fill="#3A2A1A"/>
+  <circle cx="552" cy="483" r="7" fill="#FFFFFF"/>
+  <circle cx="662" cy="483" r="7" fill="#FFFFFF"/>
+  <!-- Smile -->
+  <path d="M 560 640 Q 600 670 640 640" stroke="#3A2A1A" stroke-width="5" fill="none" stroke-linecap="round"/>
+
+  <!-- Name plate -->
+  <rect x="450" y="730" width="300" height="50" rx="6" fill="#F4D9B8"/>
+  <text x="600" y="765" font-size="32" text-anchor="middle" font-family="Georgia, serif" fill="#8B5A2B" font-style="italic">Your Pet</text>
+
+  <text x="600" y="940" font-size="48" font-weight="bold" text-anchor="middle" font-family="Arial, sans-serif" fill="#333333">Custom Pet Portrait</text>
+  <text x="600" y="1000" font-size="36" text-anchor="middle" font-family="Arial, sans-serif" fill="#8B5A2B" font-weight="bold">$35.00</text>
+</svg>

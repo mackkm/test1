@@ -1,0 +1,31 @@
+<svg viewBox="0 0 1200 1200" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="1200" fill="#f8f8f8"/>
+  <ellipse cx="600" cy="900" rx="350" ry="70" fill="#000000" opacity="0.1"/>
+
+  <!-- Bottle body -->
+  <rect x="480" y="280" width="240" height="500" rx="40" fill="#4FA8D8"/>
+  <!-- Water level -->
+  <rect x="480" y="480" width="240" height="300" rx="40" fill="#7FC4E8" opacity="0.7"/>
+  <!-- Cap -->
+  <rect x="510" y="230" width="180" height="70" rx="15" fill="#2E7DB0"/>
+
+  <!-- Attached fold-out bowl tray (at bottom front) -->
+  <path d="M 420 760 Q 600 700 780 760 L 760 820 Q 600 770 440 820 Z" fill="#2E7DB0"/>
+  <ellipse cx="600" cy="775" rx="170" ry="35" fill="#7FC4E8"/>
+  <ellipse cx="600" cy="772" rx="150" ry="28" fill="#A9DBF0"/>
+
+  <!-- Water shine -->
+  <rect x="515" y="500" width="30" height="220" rx="15" fill="#FFFFFF" opacity="0.3"/>
+
+  <!-- Paw icon on bottle -->
+  <g fill="#FFFFFF" opacity="0.85" transform="translate(600 400)">
+    <circle cx="0" cy="10" r="22"/>
+    <circle cx="-24" cy="-18" r="11"/>
+    <circle cx="-8" cy="-30" r="11"/>
+    <circle cx="10" cy="-30" r="11"/>
+    <circle cx="26" cy="-18" r="11"/>
+  </g>
+
+  <text x="600" y="1010" font-size="46" font-weight="bold" text-anchor="middle" font-family="Arial, sans-serif" fill="#333333">Travel Bowl &amp; Water Bottle</text>
+  <text x="600" y="1065" font-size="36" text-anchor="middle" font-family="Arial, sans-serif" fill="#2E7DB0" font-weight="bold">$22.00</text>
+</svg>

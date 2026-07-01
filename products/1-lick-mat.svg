@@ -1,0 +1,37 @@
+<svg viewBox="0 0 1200 1200" xmlns="http://www.w3.org/2000/svg">
+  <!-- White background -->
+  <rect width="1200" height="1200" fill="#f8f8f8"/>
+
+  <!-- Shadow -->
+  <ellipse cx="600" cy="1050" rx="400" ry="80" fill="#000000" opacity="0.1"/>
+
+  <!-- Lick mat - circular with textured pattern -->
+  <circle cx="600" cy="500" r="350" fill="#FF69B4" opacity="0.9"/>
+
+  <!-- Texture grooves pattern -->
+  <g stroke="#FF1493" stroke-width="8" fill="none" opacity="0.6">
+    <!-- Concentric circles -->
+    <circle cx="600" cy="500" r="100"/>
+    <circle cx="600" cy="500" r="150"/>
+    <circle cx="600" cy="500" r="200"/>
+    <circle cx="600" cy="500" r="250"/>
+    <circle cx="600" cy="500" r="300"/>
+
+    <!-- Radial lines -->
+    <line x1="600" y1="200" x2="600" y2="800"/>
+    <line x1="300" y1="500" x2="900" y2="500"/>
+    <line x1="370" y1="370" x2="830" y2="630"/>
+    <line x1="830" y1="370" x2="370" y2="630"/>
+  </g>
+
+  <!-- Highlight to show texture -->
+  <ellipse cx="480" cy="380" rx="100" ry="80" fill="#FFFFFF" opacity="0.3"/>
+
+  <!-- Product name -->
+  <text x="600" y="900" font-size="48" font-weight="bold" text-anchor="middle" font-family="Arial, sans-serif" fill="#333333">
+    Slow-Down Lick Mat
+  </text>
+  <text x="600" y="960" font-size="36" text-anchor="middle" font-family="Arial, sans-serif" fill="#FF69B4" font-weight="bold">
+    $18.00
+  </text>
+</svg>

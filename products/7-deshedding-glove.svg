@@ -1,0 +1,71 @@
+<svg viewBox="0 0 1200 1200" xmlns="http://www.w3.org/2000/svg">
+  <!-- White background -->
+  <rect width="1200" height="1200" fill="#f8f8f8"/>
+
+  <!-- Shadow -->
+  <ellipse cx="600" cy="1050" rx="350" ry="80" fill="#000000" opacity="0.1"/>
+
+  <!-- Glove body - relaxed hand position -->
+  <!-- Palm area with brush texture -->
+  <ellipse cx="500" cy="500" rx="150" ry="200" fill="#87CEEB" stroke="#4A90E2" stroke-width="3"/>
+
+  <!-- Fingers -->
+  <ellipse cx="350" cy="350" rx="45" ry="120" fill="#87CEEB" stroke="#4A90E2" stroke-width="3"/>
+  <ellipse cx="420" cy="280" rx="40" ry="130" fill="#87CEEB" stroke="#4A90E2" stroke-width="3"/>
+  <ellipse cx="510" cy="250" rx="45" ry="135" fill="#87CEEB" stroke="#4A90E2" stroke-width="3"/>
+  <ellipse cx="600" cy="280" rx="40" ry="130" fill="#87CEEB" stroke="#4A90E2" stroke-width="3"/>
+
+  <!-- Wrist cuff -->
+  <rect x="420" y="680" width="160" height="120" rx="10" fill="#5B9FD6" stroke="#4A90E2" stroke-width="2"/>
+
+  <!-- Brush bristle texture on palm (visible) -->
+  <g opacity="0.7" fill="#4169E1">
+    <!-- Dense bristle pattern -->
+    <circle cx="450" cy="480" r="3"/>
+    <circle cx="480" cy="460" r="3"/>
+    <circle cx="510" cy="490" r="3"/>
+    <circle cx="470" cy="520" r="3"/>
+    <circle cx="540" cy="510" r="3"/>
+    <circle cx="520" cy="480" r="3"/>
+    <circle cx="460" cy="560" r="3"/>
+    <circle cx="510" cy="580" r="3"/>
+    <circle cx="550" cy="550" r="3"/>
+    <circle cx="480" cy="400" r="3"/>
+    <circle cx="530" cy="420" r="3"/>
+    <!-- More bristles -->
+    <circle cx="420" cy="500" r="3"/>
+    <circle cx="590" cy="460" r="3"/>
+    <circle cx="440" cy="600" r="3"/>
+    <circle cx="570" cy="590" r="3"/>
+  </g>
+
+  <!-- Shine/highlight to show texture -->
+  <ellipse cx="470" cy="420" rx="70" ry="100" fill="#FFFFFF" opacity="0.25"/>
+
+  <!-- Back of glove shown on right side (lighter shade) -->
+  <ellipse cx="750" cy="500" rx="130" ry="180" fill="#B0D4E3" stroke="#6BA3D6" stroke-width="3" opacity="0.7"/>
+
+  <!-- Back side fingers -->
+  <ellipse cx="650" cy="350" rx="40" ry="110" fill="#B0D4E3" stroke="#6BA3D6" stroke-width="3" opacity="0.7"/>
+  <ellipse cx="730" cy="290" rx="35" ry="125" fill="#B0D4E3" stroke="#6BA3D6" stroke-width="3" opacity="0.7"/>
+  <ellipse cx="810" cy="280" rx="38" ry="130" fill="#B0D4E3" stroke="#6BA3D6" stroke-width="3" opacity="0.7"/>
+
+  <!-- Fold/separation line between front and back -->
+  <path d="M 620 350 Q 650 450 620 650" stroke="#999999" stroke-width="2" fill="none" opacity="0.4"/>
+
+  <!-- Text "Front" and "Back" to show dual sides -->
+  <text x="420" y="750" font-size="18" text-anchor="middle" font-family="Arial, sans-serif" fill="#666666" font-style="italic">
+    Brush Side
+  </text>
+  <text x="780" y="750" font-size="18" text-anchor="middle" font-family="Arial, sans-serif" fill="#666666" font-style="italic">
+    Back
+  </text>
+
+  <!-- Product name -->
+  <text x="600" y="950" font-size="48" font-weight="bold" text-anchor="middle" font-family="Arial, sans-serif" fill="#333333">
+    Magic Deshedding Glove
+  </text>
+  <text x="600" y="1010" font-size="36" text-anchor="middle" font-family="Arial, sans-serif" fill="#4A90E2" font-weight="bold">
+    $16.00
+  </text>
+</svg>
