@@ -1,7 +1,7 @@
 /* PocketClaw service worker — caches the app shell so it opens instantly
  * and works offline (API calls always go to the network). */
 
-const CACHE = "pocketclaw-v1";
+const CACHE = "pocketclaw-v2";
 const SHELL = [
   "./",
   "./index.html",
@@ -29,8 +29,11 @@ self.addEventListener("activate", (e) => {
 
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
-  // Never intercept API traffic — only same-origin app shell requests.
+  // Never intercept API traffic — only same-origin GET app-shell requests
+  // (the PocketClaw gateway serves /api/* from this same origin).
   if (url.origin !== location.origin) return;
+  if (e.request.method !== "GET") return;
+  if (url.pathname.includes("/api/")) return;
   e.respondWith(
     caches.match(e.request).then(
       (hit) =>

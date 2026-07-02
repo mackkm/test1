@@ -55,33 +55,51 @@
       <div id="settings" class="modal">
         <h2>Settings</h2>
 
-        <label for="api-key">Anthropic API key</label>
-        <input id="api-key" type="password" placeholder="sk-ant-…" autocomplete="off" />
-        <p class="hint">Stored only in this browser (localStorage). Get a key at
-          <a href="https://platform.claude.com" target="_blank" rel="noopener">platform.claude.com</a>.</p>
+        <label for="backend-select">Backend</label>
+        <select id="backend-select">
+          <option value="api">Claude API — direct, with your API key</option>
+          <option value="cli">Claude Code CLI — via PocketClaw gateway</option>
+        </select>
 
-        <label for="model-select">Model</label>
-        <select id="model-select"></select>
-        <button id="refresh-models" class="pill-btn">↻ Refresh model list</button>
+        <div id="api-fields">
+          <label for="api-key">Anthropic API key</label>
+          <input id="api-key" type="password" placeholder="sk-ant-…" autocomplete="off" />
+          <p class="hint">Stored only in this browser (localStorage). Get a key at
+            <a href="https://platform.claude.com" target="_blank" rel="noopener">platform.claude.com</a>.</p>
+
+          <label for="model-select">Model</label>
+          <select id="model-select"></select>
+          <button id="refresh-models" class="pill-btn">↻ Refresh model list</button>
+
+          <label for="thinking-toggle" class="row-label">
+            <input id="thinking-toggle" type="checkbox" checked />
+            Extended thinking (show reasoning summaries)
+          </label>
+
+          <label for="effort-select">Effort</label>
+          <select id="effort-select">
+            <option value="">Default (high)</option>
+            <option value="low">Low — fastest</option>
+            <option value="medium">Medium</option>
+            <option value="max">Max — most thorough</option>
+          </select>
+
+          <label for="max-tokens">Max response tokens</label>
+          <input id="max-tokens" type="number" min="256" max="64000" step="256" />
+        </div>
+
+        <div id="cli-fields" class="hidden">
+          <label for="gateway-url">Gateway URL</label>
+          <input id="gateway-url" type="text" placeholder="(this site — leave empty)" autocomplete="off" />
+          <label for="gateway-token">Gateway token (optional)</label>
+          <input id="gateway-token" type="password" autocomplete="off" />
+          <p class="hint">Run <code>node server/server.js</code> on your computer and open its
+            address on your phone. The agent runs there with Claude Code — tools, files and all.
+            Leave URL empty when you opened the app from the gateway itself.</p>
+        </div>
 
         <label for="persona">Assistant persona (system prompt)</label>
         <textarea id="persona" rows="4"></textarea>
-
-        <label for="thinking-toggle" class="row-label">
-          <input id="thinking-toggle" type="checkbox" checked />
-          Extended thinking (show reasoning summaries)
-        </label>
-
-        <label for="effort-select">Effort</label>
-        <select id="effort-select">
-          <option value="">Default (high)</option>
-          <option value="low">Low — fastest</option>
-          <option value="medium">Medium</option>
-          <option value="max">Max — most thorough</option>
-        </select>
-
-        <label for="max-tokens">Max response tokens</label>
-        <input id="max-tokens" type="number" min="256" max="64000" step="256" />
 
         <div class="modal-actions">
           <button id="settings-save" class="primary-btn">Save</button>

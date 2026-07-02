@@ -28,12 +28,15 @@ const ADAPTIVE_RE = /fable-5|mythos-5|opus-4-[678]|sonnet-5|sonnet-4-6/;
 
 const state = {
   settings: {
+    backend: "api",       // "api" (direct, key) | "cli" (Claude Code via gateway)
     apiKey: "",
     model: "claude-opus-4-8",
     persona: DEFAULT_PERSONA,
     thinking: true,
     effort: "",
     maxTokens: 8192,
+    gatewayUrl: "",       // empty = same origin as the app
+    gatewayToken: "",
   },
   convos: [],          // [{id, title, messages:[{role, content}], updated}]
   currentId: null,
@@ -164,12 +167,16 @@ function renderMarkdown(text) {
 
 /* ---------- rendering ---------- */
 
+function backendConfigured() {
+  return state.settings.backend === "cli" || !!state.settings.apiKey;
+}
+
 function renderMessages() {
   const convo = currentConvo();
   messagesEl.innerHTML = "";
   const empty = !convo || convo.messages.length === 0;
   welcomeEl.classList.toggle("hidden", !empty);
-  $("welcome-hint").classList.toggle("hidden", !!state.settings.apiKey);
+  $("welcome-hint").classList.toggle("hidden", backendConfigured());
   $("convo-title").textContent = convo && !empty ? convo.title : "PocketClaw";
   if (!convo) return;
   for (const m of convo.messages) {
@@ -360,6 +367,70 @@ async function streamChat(convo, onThinking, onText, signal) {
   return stopReason;
 }
 
+/* ---------- PocketClaw gateway (Claude Code CLI) ---------- */
+
+function gatewayBase() {
+  const u = (state.settings.gatewayUrl || "").trim().replace(/\/+$/, "");
+  return u || location.origin;
+}
+
+async function streamChatCli(convo, userText, onThinking, onText, onTool, signal) {
+  const headers = { "content-type": "application/json" };
+  if (state.settings.gatewayToken) {
+    headers.authorization = "Bearer " + state.settings.gatewayToken;
+  }
+  const res = await fetch(gatewayBase() + "/api/chat", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      prompt: userText,
+      sessionId: convo.cliSessionId || undefined,
+      persona: state.settings.persona || undefined,
+    }),
+    signal,
+  });
+
+  if (!res.ok) {
+    let msg = "gateway HTTP " + res.status;
+    try {
+      const err = await res.json();
+      msg = err?.error || msg;
+    } catch (_) {}
+    throw new Error(msg);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let result = { sessionId: null };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let sep;
+    while ((sep = buf.indexOf("\n\n")) !== -1) {
+      const rawEvent = buf.slice(0, sep);
+      buf = buf.slice(sep + 2);
+      for (const line of rawEvent.split("\n")) {
+        if (!line.startsWith("data:")) continue;
+        let ev;
+        try {
+          ev = JSON.parse(line.slice(5).trim());
+        } catch (_) {
+          continue;
+        }
+        if (ev.type === "text") onText(ev.text);
+        else if (ev.type === "thinking") onThinking(ev.text);
+        else if (ev.type === "tool") onTool(ev.name, ev.preview || "");
+        else if (ev.type === "done") result.sessionId = ev.session_id;
+        else if (ev.type === "error") throw new Error(ev.message || "gateway error");
+      }
+    }
+  }
+  return result;
+}
+
 /* ---------- send flow ---------- */
 
 async function send() {
@@ -369,7 +440,7 @@ async function send() {
   }
   const text = inputEl.value.trim();
   if (!text) return;
-  if (!state.settings.apiKey) {
+  if (!backendConfigured()) {
     openSettings();
     return;
   }
@@ -406,7 +477,8 @@ async function send() {
       if (thinkingText && !thinkingBox) {
         thinkingBox = document.createElement("div");
         thinkingBox.className = "thinking-box";
-        thinkingBox.innerHTML = '<span class="thinking-label">Thinking…</span>';
+        const label = state.settings.backend === "cli" ? "Working…" : "Thinking…";
+        thinkingBox.innerHTML = '<span class="thinking-label">' + label + "</span>";
         const span = document.createElement("span");
         thinkingBox.appendChild(span);
         bubble.insertBefore(thinkingBox, body);
@@ -425,13 +497,24 @@ async function send() {
 
   let stopReason = null;
   let errorMsg = null;
+  const onThinking = (t) => { thinkingText += t; paint(); };
+  const onText = (t) => { assistantText += t; paint(); };
   try {
-    stopReason = await streamChat(
-      convo,
-      (t) => { thinkingText += t; paint(); },
-      (t) => { assistantText += t; paint(); },
-      state.abort.signal
-    );
+    if (state.settings.backend === "cli") {
+      const onTool = (name, preview) => {
+        thinkingText +=
+          (thinkingText && !thinkingText.endsWith("\n") ? "\n" : "") +
+          "🔧 " + name + (preview ? "  " + preview : "") + "\n";
+        paint();
+      };
+      const r = await streamChatCli(
+        convo, text, onThinking, onText, onTool, state.abort.signal
+      );
+      if (r.sessionId) convo.cliSessionId = r.sessionId;
+      stopReason = "end_turn";
+    } else {
+      stopReason = await streamChat(convo, onThinking, onText, state.abort.signal);
+    }
   } catch (e) {
     if (e.name === "AbortError") stopReason = "aborted";
     else errorMsg = e.message || String(e);
@@ -443,7 +526,8 @@ async function send() {
   sendBtn.classList.remove("stop");
   body.classList.remove("cursor-blink");
   if (thinkingBox) {
-    thinkingBox.firstChild.textContent = "Thought process";
+    thinkingBox.firstChild.textContent =
+      state.settings.backend === "cli" ? "Agent activity" : "Thought process";
   }
 
   if (errorMsg) {
@@ -482,16 +566,26 @@ async function send() {
 
 /* ---------- settings UI ---------- */
 
+function updateBackendFields() {
+  const cli = $("backend-select").value === "cli";
+  $("api-fields").classList.toggle("hidden", cli);
+  $("cli-fields").classList.toggle("hidden", !cli);
+}
+
 function openSettings() {
   const s = state.settings;
+  $("backend-select").value = s.backend;
   $("api-key").value = s.apiKey;
   $("persona").value = s.persona;
   $("thinking-toggle").checked = s.thinking;
   $("effort-select").value = s.effort;
   $("max-tokens").value = s.maxTokens;
+  $("gateway-url").value = s.gatewayUrl;
+  $("gateway-token").value = s.gatewayToken;
   populateModelSelect(FALLBACK_MODELS);
+  updateBackendFields();
   $("settings-backdrop").classList.remove("hidden");
-  if (s.apiKey) refreshModels(false);
+  if (s.apiKey && s.backend === "api") refreshModels(false);
 }
 
 function closeSettings() {
@@ -536,12 +630,15 @@ async function refreshModels(interactive) {
 
 function saveSettingsFromForm() {
   const s = state.settings;
+  s.backend = $("backend-select").value;
   s.apiKey = $("api-key").value.trim();
   s.model = $("model-select").value;
   s.persona = $("persona").value.trim() || DEFAULT_PERSONA;
   s.thinking = $("thinking-toggle").checked;
   s.effort = $("effort-select").value;
   s.maxTokens = Number($("max-tokens").value) || 8192;
+  s.gatewayUrl = $("gateway-url").value.trim();
+  s.gatewayToken = $("gateway-token").value.trim();
   saveSettings();
   closeSettings();
   renderMessages();
@@ -592,11 +689,28 @@ function init() {
   $("settings-close").onclick = closeSettings;
   $("settings-save").onclick = saveSettingsFromForm;
   $("refresh-models").onclick = () => refreshModels(true);
+  $("backend-select").onchange = updateBackendFields;
 
-  if (!state.settings.apiKey) {
-    // gentle first-run nudge
-    setTimeout(openSettings, 600);
+  // First run while served from the PocketClaw gateway → default to the CLI backend.
+  if (!localStorage.getItem("pc_settings")) {
+    fetch("api/health")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((h) => {
+        if (h && h.backend === "claude-cli") {
+          state.settings.backend = "cli";
+          saveSettings();
+          renderMessages();
+          closeSettings();
+        }
+      })
+      .catch(() => {});
   }
+
+  // Gentle first-run nudge — re-check at fire time so the gateway health
+  // check (which may flip the backend to "cli") wins the race.
+  setTimeout(() => {
+    if (!backendConfigured()) openSettings();
+  }, 900);
 
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js").catch(() => {});
