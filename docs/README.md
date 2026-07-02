@@ -14,12 +14,18 @@ in** — two ways:
 
 - 📱 Mobile-first chat UI, installable to your home screen like a native app
 - 🔑 Bring your own Anthropic API key **or** point it at your Claude Code CLI
+- 🔍 **Web search** — Claude can search the internet for current information, with live
+  "Searching: …" activity (API mode; toggle in Settings)
+- 📷 **Vision** — attach photos from your camera or gallery. In API mode they're sent to
+  Claude directly; in CLI mode the gateway saves them so the agent can Read them
 - 🤖 In CLI mode: a real agent — tool use shown live ("agent activity"), per-conversation
   session resume, persona forwarded via `--append-system-prompt`
 - ⚡ Streaming responses with live "thinking" summaries (adaptive thinking)
+- 🏷️ Conversations auto-title themselves (a tiny Haiku call, when an API key is set)
 - 🧠 Model picker with live model list from the API (Opus 4.8, Fable 5, Sonnet 5, Haiku 4.5, …)
-- 🎭 Customizable assistant persona (system prompt) and effort level
-- 💬 Multiple conversations, saved locally on your device
+- 🎭 Customizable assistant persona (system prompt) and effort level (low → max)
+- 💬 Multiple conversations saved locally; suggested prompts to get started
+- ⧉ Copy buttons on replies and code blocks; markdown tables and code rendering
 - 📴 App shell works offline (chatting needs a connection, of course)
 
 ## Run the Claude Code CLI gateway

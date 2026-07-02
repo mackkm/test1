@@ -25,6 +25,7 @@
 const http = require("http");
 const { spawn } = require("child_process");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
 const PORT = Number(process.env.PORT || 3333);
@@ -74,10 +75,33 @@ async function handleChat(req, res) {
     res.writeHead(400, { "content-type": "application/json" });
     return res.end(JSON.stringify({ error: "invalid JSON body" }));
   }
-  const prompt = String(body.prompt || "").trim();
+  let prompt = String(body.prompt || "").trim();
   if (!prompt) {
     res.writeHead(400, { "content-type": "application/json" });
     return res.end(JSON.stringify({ error: "prompt required" }));
+  }
+
+  // Photos from the phone: save inside the workspace so the agent can Read
+  // them without a permission prompt (headless mode can't answer prompts).
+  const images = Array.isArray(body.images) ? body.images.slice(0, 3) : [];
+  if (images.length) {
+    const dir = path.join(WORKSPACE, ".pocketclaw", "uploads");
+    fs.mkdirSync(dir, { recursive: true });
+    const saved = [];
+    for (let i = 0; i < images.length; i++) {
+      const im = images[i] || {};
+      const ext = String(im.media_type || "image/jpeg").split("/")[1] || "jpg";
+      const file = path.join(dir, `img-${Date.now()}-${i}.${ext.replace(/[^a-z0-9]/gi, "")}`);
+      try {
+        fs.writeFileSync(file, Buffer.from(String(im.data || ""), "base64"));
+        saved.push(file);
+      } catch (_) {}
+    }
+    if (saved.length) {
+      prompt +=
+        "\n\n[The user attached " + saved.length + " photo(s) from their phone, saved at: " +
+        saved.join(", ") + " — use the Read tool to look at them.]";
+    }
   }
 
   res.writeHead(200, {

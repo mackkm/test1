@@ -41,11 +41,15 @@
         <h1>PocketClaw</h1>
         <p>Your personal AI assistant, powered by Claude.</p>
         <p id="welcome-hint" class="hint">Tap ⚙ and paste your Anthropic API key to get started.</p>
+        <div id="suggestions"></div>
       </div>
     </main>
 
     <!-- Composer -->
+    <div id="attach-strip" class="hidden"></div>
     <footer id="composer">
+      <button id="attach-btn" class="icon-btn" aria-label="Attach photo">📷</button>
+      <input id="file-input" type="file" accept="image/*" multiple hidden />
       <textarea id="input" rows="1" placeholder="Message PocketClaw…" enterkeyhint="send"></textarea>
       <button id="send-btn" class="send-btn" aria-label="Send">➤</button>
     </footer>
@@ -76,11 +80,17 @@
             Extended thinking (show reasoning summaries)
           </label>
 
+          <label for="websearch-toggle" class="row-label">
+            <input id="websearch-toggle" type="checkbox" checked />
+            Web search (answer with current information)
+          </label>
+
           <label for="effort-select">Effort</label>
           <select id="effort-select">
             <option value="">Default (high)</option>
             <option value="low">Low — fastest</option>
             <option value="medium">Medium</option>
+            <option value="xhigh">X-high — hard problems</option>
             <option value="max">Max — most thorough</option>
           </select>
 

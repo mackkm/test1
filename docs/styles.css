@@ -122,12 +122,32 @@ html, body {
 
 .welcome {
   text-align: center;
-  margin-top: 18vh;
+  margin-top: 12vh;
   color: var(--text-dim);
 }
 .welcome-claw { font-size: 3rem; }
 .welcome h1 { color: var(--text); margin: 8px 0 6px; font-size: 1.5rem; }
 .welcome .hint { margin-top: 14px; font-size: .85rem; }
+
+#suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 22px;
+  padding: 0 8px;
+}
+.suggestion-chip {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 18px;
+  padding: 9px 14px;
+  font-size: .84rem;
+  cursor: pointer;
+  text-align: left;
+}
+.suggestion-chip:active { border-color: var(--accent); }
 
 .msg { margin-bottom: 14px; display: flex; }
 .msg.user { justify-content: flex-end; }
@@ -184,6 +204,95 @@ html, body {
   animation: blink 1s step-start infinite;
 }
 @keyframes blink { 50% { opacity: 0; } }
+
+/* attached image thumbnails */
+.bubble .msg-images {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.bubble .msg-images img {
+  max-width: 130px;
+  max-height: 130px;
+  border-radius: 8px;
+  display: block;
+}
+
+#attach-strip {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px 0;
+  background: var(--bg-raised);
+  border-top: 1px solid var(--border);
+}
+#attach-strip .attach-thumb {
+  position: relative;
+}
+#attach-strip img {
+  width: 56px; height: 56px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  display: block;
+}
+#attach-strip .attach-x {
+  position: absolute;
+  top: -6px; right: -6px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  width: 20px; height: 20px;
+  font-size: .7rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* message + code copy buttons */
+.msg-actions {
+  margin-top: 6px;
+  display: flex;
+  gap: 8px;
+}
+.msg-actions button {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: .75rem;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.msg-actions button:active { background: var(--bg-input); color: var(--text); }
+
+.codewrap { position: relative; }
+.code-copy {
+  position: absolute;
+  top: 6px; right: 6px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 6px;
+  font-size: .7rem;
+  padding: 3px 8px;
+  cursor: pointer;
+  z-index: 1;
+}
+
+/* markdown tables */
+.tablewrap { overflow-x: auto; margin: 0 0 .7em; }
+.bubble table {
+  border-collapse: collapse;
+  font-size: .85em;
+  min-width: 60%;
+}
+.bubble th, .bubble td {
+  border: 1px solid var(--border);
+  padding: 5px 9px;
+  text-align: left;
+}
+.bubble th { background: var(--bg-input); }
 
 /* markdown inside bubbles */
 .bubble p { margin: 0 0 .7em; }

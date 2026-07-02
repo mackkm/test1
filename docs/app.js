@@ -33,15 +33,32 @@ const state = {
     model: "claude-opus-4-8",
     persona: DEFAULT_PERSONA,
     thinking: true,
+    webSearch: true,
     effort: "",
     maxTokens: 8192,
     gatewayUrl: "",       // empty = same origin as the app
     gatewayToken: "",
   },
-  convos: [],          // [{id, title, messages:[{role, content}], updated}]
+  convos: [],          // [{id, title, messages:[{role, content, images?}], updated}]
   currentId: null,
   streaming: false,
   abort: null,
+  pendingImages: [],   // [{media_type, data}] queued for the next message
+};
+
+const SUGGESTIONS = {
+  api: [
+    ["🗞️", "What's happening in the news today?"],
+    ["✍️", "Help me draft a tricky message"],
+    ["💡", "Brainstorm ideas with me"],
+    ["🧠", "Teach me something surprising"],
+  ],
+  cli: [
+    ["📁", "Give me a quick tour of this workspace"],
+    ["🐛", "Scan the code for potential bugs"],
+    ["📜", "Summarize the recent git history"],
+    ["🔧", "Help me build something new here"],
+  ],
 };
 
 function loadState() {
@@ -113,6 +130,25 @@ function renderInline(s) {
     );
 }
 
+function renderTable(rows) {
+  // rows: raw escaped "|" lines; rows[1] is the separator
+  const cells = (line) => {
+    const c = line.split("|").map((x) => x.trim());
+    if (c[0] === "") c.shift();
+    if (c.length && c[c.length - 1] === "") c.pop();
+    return c;
+  };
+  let html = '<div class="tablewrap"><table><thead><tr>';
+  for (const c of cells(rows[0])) html += "<th>" + renderInline(c) + "</th>";
+  html += "</tr></thead><tbody>";
+  for (let i = 2; i < rows.length; i++) {
+    html += "<tr>";
+    for (const c of cells(rows[i])) html += "<td>" + renderInline(c) + "</td>";
+    html += "</tr>";
+  }
+  return html + "</tbody></table></div>";
+}
+
 function renderMarkdown(text) {
   const escaped = escapeHtml(text);
   const parts = escaped.split(/```/);
@@ -121,12 +157,15 @@ function renderMarkdown(text) {
     if (i % 2 === 1) {
       // code fence: first line may be the language tag
       const body = parts[i].replace(/^[a-zA-Z0-9_+-]*\n/, "");
-      html += "<pre><code>" + body + "</code></pre>";
+      html +=
+        '<div class="codewrap"><button class="code-copy">copy</button>' +
+        "<pre><code>" + body + "</code></pre></div>";
       continue;
     }
     const lines = parts[i].split("\n");
     let para = [];
     let list = null; // "ul" | "ol"
+    let table = [];
     const flushPara = () => {
       if (para.length) {
         html += "<p>" + renderInline(para.join("<br>")) + "</p>";
@@ -136,7 +175,23 @@ function renderMarkdown(text) {
     const closeList = () => {
       if (list) { html += "</" + list + ">"; list = null; }
     };
+    const flushTable = () => {
+      if (table.length >= 2 && /^[\s|:\-]+$/.test(table[1])) {
+        html += renderTable(table);
+      } else {
+        for (const raw of table) para.push(raw);
+        flushPara();
+      }
+      table = [];
+    };
     for (const line of lines) {
+      const isTableLine = /^\s*\|.*\|\s*$/.test(line);
+      if (isTableLine) {
+        flushPara(); closeList();
+        table.push(line);
+        continue;
+      }
+      if (table.length) flushTable();
       const h = line.match(/^(#{1,4})\s+(.*)/);
       const ul = line.match(/^\s*[-*]\s+(.*)/);
       const ol = line.match(/^\s*\d+[.)]\s+(.*)/);
@@ -160,9 +215,27 @@ function renderMarkdown(text) {
         para.push(line);
       }
     }
+    if (table.length) flushTable();
     flushPara(); closeList();
   }
   return html;
+}
+
+function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(text).catch(() => copyTextFallback(text));
+  }
+  copyTextFallback(text); // http:// LAN origins have no clipboard API
+}
+function copyTextFallback(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand("copy"); } catch (_) {}
+  ta.remove();
 }
 
 /* ---------- rendering ---------- */
@@ -178,18 +251,48 @@ function renderMessages() {
   welcomeEl.classList.toggle("hidden", !empty);
   $("welcome-hint").classList.toggle("hidden", backendConfigured());
   $("convo-title").textContent = convo && !empty ? convo.title : "PocketClaw";
+  if (empty) renderSuggestions();
   if (!convo) return;
   for (const m of convo.messages) {
-    appendBubble(m.role, m.content, m.thinking);
+    const bubble = appendBubble(m.role, m.content, m.thinking, m.images);
+    if (m.role === "assistant" && m.content) addCopyAction(bubble, m.content);
   }
   scrollToBottom();
 }
 
-function appendBubble(role, content, thinking) {
+function renderSuggestions() {
+  const box = $("suggestions");
+  box.innerHTML = "";
+  if (!backendConfigured()) return;
+  const set = SUGGESTIONS[state.settings.backend] || SUGGESTIONS.api;
+  for (const [emoji, text] of set) {
+    const chip = document.createElement("button");
+    chip.className = "suggestion-chip";
+    chip.textContent = emoji + " " + text;
+    chip.onclick = () => {
+      inputEl.value = text;
+      autoresize();
+      inputEl.focus();
+    };
+    box.appendChild(chip);
+  }
+}
+
+function appendBubble(role, content, thinking, images) {
   const wrap = document.createElement("div");
   wrap.className = "msg " + role;
   const bubble = document.createElement("div");
   bubble.className = "bubble";
+  if (images && images.length) {
+    const strip = document.createElement("div");
+    strip.className = "msg-images";
+    for (const im of images) {
+      const img = document.createElement("img");
+      img.src = "data:" + im.media_type + ";base64," + im.data;
+      strip.appendChild(img);
+    }
+    bubble.appendChild(strip);
+  }
   if (role === "assistant") {
     if (thinking) {
       const t = document.createElement("div");
@@ -202,12 +305,28 @@ function appendBubble(role, content, thinking) {
     body.className = "md-body";
     body.innerHTML = renderMarkdown(content);
     bubble.appendChild(body);
-  } else {
-    bubble.textContent = content;
+  } else if (content) {
+    const txt = document.createElement("div");
+    txt.textContent = content;
+    bubble.appendChild(txt);
   }
   wrap.appendChild(bubble);
   messagesEl.appendChild(wrap);
   return bubble;
+}
+
+function addCopyAction(bubble, rawText) {
+  const actions = document.createElement("div");
+  actions.className = "msg-actions";
+  const btn = document.createElement("button");
+  btn.textContent = "⧉ copy";
+  btn.onclick = () => {
+    copyText(rawText);
+    btn.textContent = "✓ copied";
+    setTimeout(() => (btn.textContent = "⧉ copy"), 1200);
+  };
+  actions.appendChild(btn);
+  bubble.appendChild(actions);
 }
 
 function appendError(text) {
@@ -276,6 +395,12 @@ async function fetchModels() {
   return (data.data || []).map((m) => ({ id: m.id, label: m.display_name || m.id }));
 }
 
+function searchToolVariant(model) {
+  // dynamic-filtering variant needs Opus 4.6+/Sonnet 4.6+/Fable; older models
+  // (e.g. Haiku 4.5) use the basic one
+  return ADAPTIVE_RE.test(model) ? "web_search_20260209" : "web_search_20250305";
+}
+
 function buildRequestBody(convo) {
   const s = state.settings;
   const body = {
@@ -289,9 +414,28 @@ function buildRequestBody(convo) {
         cache_control: { type: "ephemeral" },
       },
     ],
-    // Plain text history — thinking blocks are display-only in this app.
-    messages: convo.messages.map((m) => ({ role: m.role, content: m.content })),
+    // Plain text history (+ image blocks) — thinking is display-only in this app.
+    messages: convo.messages.map((m) => {
+      if (m.images && m.images.length) {
+        return {
+          role: m.role,
+          content: [
+            ...m.images.map((im) => ({
+              type: "image",
+              source: { type: "base64", media_type: im.media_type, data: im.data },
+            })),
+            { type: "text", text: m.content },
+          ],
+        };
+      }
+      return { role: m.role, content: m.content };
+    }),
   };
+  if (s.webSearch) {
+    body.tools = [
+      { type: searchToolVariant(s.model), name: "web_search", max_uses: 5 },
+    ];
+  }
   const adaptive = ADAPTIVE_RE.test(s.model);
   const isFable = /fable-5|mythos-5/.test(s.model);
   if (adaptive && s.thinking) {
@@ -306,7 +450,7 @@ function buildRequestBody(convo) {
   return body;
 }
 
-async function streamChat(convo, onThinking, onText, signal) {
+async function streamChat(convo, onThinking, onText, onActivity, signal) {
   const res = await fetch(API_BASE + "/v1/messages", {
     method: "POST",
     headers: apiHeaders(),
@@ -327,7 +471,8 @@ async function streamChat(convo, onThinking, onText, signal) {
   const decoder = new TextDecoder();
   let buf = "";
   let stopReason = null;
-  const blockTypes = {}; // index -> content block type
+  const blockTypes = {};  // index -> content block type
+  const toolInputs = {};  // index -> accumulated partial JSON for server tools
 
   while (true) {
     const { done, value } = await reader.read();
@@ -348,12 +493,35 @@ async function streamChat(convo, onThinking, onText, signal) {
           continue;
         }
         switch (ev.type) {
-          case "content_block_start":
-            blockTypes[ev.index] = ev.content_block.type;
+          case "content_block_start": {
+            const b = ev.content_block;
+            blockTypes[ev.index] = b.type;
+            if (b.type === "server_tool_use") toolInputs[ev.index] = "";
+            else if (b.type === "web_search_tool_result") {
+              const n = Array.isArray(b.content) ? b.content.length : 0;
+              onActivity(n ? "🔍 " + n + " results" : "🔍 search finished");
+            }
             break;
+          }
           case "content_block_delta":
             if (ev.delta.type === "text_delta") onText(ev.delta.text);
             else if (ev.delta.type === "thinking_delta") onThinking(ev.delta.thinking);
+            else if (
+              ev.delta.type === "input_json_delta" &&
+              blockTypes[ev.index] === "server_tool_use"
+            ) {
+              toolInputs[ev.index] += ev.delta.partial_json || "";
+            }
+            break;
+          case "content_block_stop":
+            if (blockTypes[ev.index] === "server_tool_use") {
+              let label = "🔍 Searching the web…";
+              try {
+                const q = JSON.parse(toolInputs[ev.index] || "{}").query;
+                if (q) label = "🔍 Searching: “" + q + "”";
+              } catch (_) {}
+              onActivity(label);
+            }
             break;
           case "message_delta":
             if (ev.delta && ev.delta.stop_reason) stopReason = ev.delta.stop_reason;
@@ -374,7 +542,7 @@ function gatewayBase() {
   return u || location.origin;
 }
 
-async function streamChatCli(convo, userText, onThinking, onText, onTool, signal) {
+async function streamChatCli(convo, userText, images, onThinking, onText, onTool, signal) {
   const headers = { "content-type": "application/json" };
   if (state.settings.gatewayToken) {
     headers.authorization = "Bearer " + state.settings.gatewayToken;
@@ -386,6 +554,7 @@ async function streamChatCli(convo, userText, onThinking, onText, onTool, signal
       prompt: userText,
       sessionId: convo.cliSessionId || undefined,
       persona: state.settings.persona || undefined,
+      images: images && images.length ? images : undefined,
     }),
     signal,
   });
@@ -446,7 +615,11 @@ async function send() {
   }
 
   let convo = currentConvo() || newConvo();
-  convo.messages.push({ role: "user", content: text });
+  const images = state.pendingImages.splice(0);
+  renderAttachStrip();
+  const userMsg = { role: "user", content: text };
+  if (images.length) userMsg.images = images;
+  convo.messages.push(userMsg);
   if (convo.messages.length === 1) {
     convo.title = text.length > 42 ? text.slice(0, 42) + "…" : text;
   }
@@ -457,7 +630,7 @@ async function send() {
   autoresize();
   welcomeEl.classList.add("hidden");
   $("convo-title").textContent = convo.title;
-  appendBubble("user", text);
+  appendBubble("user", text, null, images);
   scrollToBottom();
 
   // live assistant bubble
@@ -469,24 +642,27 @@ async function send() {
   let thinkingText = "";
   let pending = false;
 
+  const doPaint = () => {
+    if (thinkingText && !thinkingBox) {
+      thinkingBox = document.createElement("div");
+      thinkingBox.className = "thinking-box";
+      const label = state.settings.backend === "cli" ? "Working…" : "Thinking…";
+      thinkingBox.innerHTML = '<span class="thinking-label">' + label + "</span>";
+      const span = document.createElement("span");
+      thinkingBox.appendChild(span);
+      bubble.insertBefore(thinkingBox, body);
+    }
+    if (thinkingBox) thinkingBox.lastChild.textContent = thinkingText;
+    body.innerHTML = renderMarkdown(assistantText);
+    body.classList.toggle("cursor-blink", state.streaming);
+    scrollToBottom();
+  };
   const paint = () => {
     if (pending) return;
     pending = true;
     requestAnimationFrame(() => {
       pending = false;
-      if (thinkingText && !thinkingBox) {
-        thinkingBox = document.createElement("div");
-        thinkingBox.className = "thinking-box";
-        const label = state.settings.backend === "cli" ? "Working…" : "Thinking…";
-        thinkingBox.innerHTML = '<span class="thinking-label">' + label + "</span>";
-        const span = document.createElement("span");
-        thinkingBox.appendChild(span);
-        bubble.insertBefore(thinkingBox, body);
-      }
-      if (thinkingBox) thinkingBox.lastChild.textContent = thinkingText;
-      body.innerHTML = renderMarkdown(assistantText);
-      body.classList.add("cursor-blink");
-      scrollToBottom();
+      doPaint();
     });
   };
 
@@ -499,21 +675,24 @@ async function send() {
   let errorMsg = null;
   const onThinking = (t) => { thinkingText += t; paint(); };
   const onText = (t) => { assistantText += t; paint(); };
+  const onActivity = (line) => {
+    thinkingText +=
+      (thinkingText && !thinkingText.endsWith("\n") ? "\n" : "") + line + "\n";
+    paint();
+  };
   try {
     if (state.settings.backend === "cli") {
-      const onTool = (name, preview) => {
-        thinkingText +=
-          (thinkingText && !thinkingText.endsWith("\n") ? "\n" : "") +
-          "🔧 " + name + (preview ? "  " + preview : "") + "\n";
-        paint();
-      };
+      const onTool = (name, preview) =>
+        onActivity("🔧 " + name + (preview ? "  " + preview : ""));
       const r = await streamChatCli(
-        convo, text, onThinking, onText, onTool, state.abort.signal
+        convo, text, images, onThinking, onText, onTool, state.abort.signal
       );
       if (r.sessionId) convo.cliSessionId = r.sessionId;
       stopReason = "end_turn";
     } else {
-      stopReason = await streamChat(convo, onThinking, onText, state.abort.signal);
+      stopReason = await streamChat(
+        convo, onThinking, onText, onActivity, state.abort.signal
+      );
     }
   } catch (e) {
     if (e.name === "AbortError") stopReason = "aborted";
@@ -524,7 +703,7 @@ async function send() {
   state.abort = null;
   sendBtn.textContent = "➤";
   sendBtn.classList.remove("stop");
-  body.classList.remove("cursor-blink");
+  doPaint(); // final synchronous paint — a queued rAF may not have fired yet
   if (thinkingBox) {
     thinkingBox.firstChild.textContent =
       state.settings.backend === "cli" ? "Agent activity" : "Thought process";
@@ -554,6 +733,8 @@ async function send() {
       content: assistantText,
       thinking: thinkingText || undefined,
     });
+    addCopyAction(bubble, assistantText);
+    autoTitle(convo);
   } else if (stopReason === "aborted") {
     convo.messages.pop(); // nothing came back; drop the user turn so history stays valid
     inputEl.value = text;
@@ -562,6 +743,109 @@ async function send() {
   convo.updated = Date.now();
   saveConvos();
   renderConvoList();
+}
+
+/* ---------- smart conversation titles (cheap Haiku call) ---------- */
+
+async function autoTitle(convo) {
+  if (convo.titleDone || !state.settings.apiKey || convo.messages.length < 2) return;
+  convo.titleDone = true; // one attempt per conversation
+  try {
+    const first = convo.messages[0];
+    const reply = convo.messages.find((m) => m.role === "assistant");
+    const res = await fetch(API_BASE + "/v1/messages", {
+      method: "POST",
+      headers: apiHeaders(),
+      body: JSON.stringify({
+        model: "claude-haiku-4-5",
+        max_tokens: 30,
+        system:
+          "You title conversations. Reply with ONLY a title of 2-5 words. " +
+          "No quotes, no punctuation at the end.",
+        messages: [
+          {
+            role: "user",
+            content:
+              "User: " + String(first.content).slice(0, 500) +
+              "\n\nAssistant: " + String(reply?.content || "").slice(0, 500),
+          },
+        ],
+      }),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const t = data?.content?.find((b) => b.type === "text")?.text?.trim();
+    if (t) {
+      convo.title = t.slice(0, 60);
+      saveConvos();
+      renderConvoList();
+      if (convo.id === state.currentId) $("convo-title").textContent = convo.title;
+    }
+  } catch (_) {
+    /* title stays as the truncated first message */
+  }
+}
+
+/* ---------- photo attachments ---------- */
+
+function renderAttachStrip() {
+  const strip = $("attach-strip");
+  strip.innerHTML = "";
+  strip.classList.toggle("hidden", state.pendingImages.length === 0);
+  state.pendingImages.forEach((im, i) => {
+    const box = document.createElement("div");
+    box.className = "attach-thumb";
+    const img = document.createElement("img");
+    img.src = "data:" + im.media_type + ";base64," + im.data;
+    const x = document.createElement("button");
+    x.className = "attach-x";
+    x.textContent = "✕";
+    x.onclick = () => {
+      state.pendingImages.splice(i, 1);
+      renderAttachStrip();
+    };
+    box.appendChild(img);
+    box.appendChild(x);
+    strip.appendChild(box);
+  });
+}
+
+function downscaleImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const MAX = 1280;
+      let { width, height } = img;
+      if (width > MAX || height > MAX) {
+        const k = MAX / Math.max(width, height);
+        width = Math.round(width * k);
+        height = Math.round(height * k);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+      resolve({ media_type: "image/jpeg", data: dataUrl.split(",")[1] });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("could not read image"));
+    };
+    img.src = url;
+  });
+}
+
+async function addImages(files) {
+  for (const f of files) {
+    if (state.pendingImages.length >= 3) break;
+    try {
+      state.pendingImages.push(await downscaleImage(f));
+    } catch (_) {}
+  }
+  renderAttachStrip();
 }
 
 /* ---------- settings UI ---------- */
@@ -578,6 +862,7 @@ function openSettings() {
   $("api-key").value = s.apiKey;
   $("persona").value = s.persona;
   $("thinking-toggle").checked = s.thinking;
+  $("websearch-toggle").checked = s.webSearch;
   $("effort-select").value = s.effort;
   $("max-tokens").value = s.maxTokens;
   $("gateway-url").value = s.gatewayUrl;
@@ -635,6 +920,7 @@ function saveSettingsFromForm() {
   s.model = $("model-select").value;
   s.persona = $("persona").value.trim() || DEFAULT_PERSONA;
   s.thinking = $("thinking-toggle").checked;
+  s.webSearch = $("websearch-toggle").checked;
   s.effort = $("effort-select").value;
   s.maxTokens = Number($("max-tokens").value) || 8192;
   s.gatewayUrl = $("gateway-url").value.trim();
@@ -684,6 +970,24 @@ function init() {
   $("menu-btn").onclick = openDrawer;
   $("drawer-backdrop").onclick = closeDrawer;
   $("new-chat-btn").onclick = () => { newConvo(); closeDrawer(); };
+
+  $("attach-btn").onclick = () => $("file-input").click();
+  $("file-input").onchange = (e) => {
+    addImages([...e.target.files]);
+    e.target.value = "";
+  };
+
+  // copy buttons inside rendered markdown (event delegation)
+  messagesEl.addEventListener("click", (e) => {
+    const btn = e.target.closest(".code-copy");
+    if (!btn) return;
+    const code = btn.parentElement.querySelector("pre code");
+    if (code) {
+      copyText(code.textContent);
+      btn.textContent = "copied";
+      setTimeout(() => (btn.textContent = "copy"), 1200);
+    }
+  });
 
   $("settings-btn").onclick = openSettings;
   $("settings-close").onclick = closeSettings;
