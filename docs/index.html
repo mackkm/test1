@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#16130f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>PocketClaw</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header id="header">
+      <button id="menu-btn" class="icon-btn" aria-label="Conversations">☰</button>
+      <div id="header-title">
+        <span class="claw">🦞</span> <span id="convo-title">PocketClaw</span>
+      </div>
+      <button id="settings-btn" class="icon-btn" aria-label="Settings">⚙</button>
+    </header>
+
+    <!-- Conversation drawer -->
+    <div id="drawer-backdrop" class="hidden"></div>
+    <nav id="drawer" class="hidden">
+      <div class="drawer-head">
+        <span>Conversations</span>
+        <button id="new-chat-btn" class="pill-btn">+ New chat</button>
+      </div>
+      <ul id="convo-list"></ul>
+    </nav>
+
+    <!-- Chat area -->
+    <main id="chat">
+      <div id="messages"></div>
+      <div id="welcome" class="welcome">
+        <div class="welcome-claw">🦞</div>
+        <h1>PocketClaw</h1>
+        <p>Your personal AI assistant, powered by Claude.</p>
+        <p id="welcome-hint" class="hint">Tap ⚙ and paste your Anthropic API key to get started.</p>
+      </div>
+    </main>
+
+    <!-- Composer -->
+    <footer id="composer">
+      <textarea id="input" rows="1" placeholder="Message PocketClaw…" enterkeyhint="send"></textarea>
+      <button id="send-btn" class="send-btn" aria-label="Send">➤</button>
+    </footer>
+
+    <!-- Settings modal -->
+    <div id="settings-backdrop" class="modal-backdrop hidden">
+      <div id="settings" class="modal">
+        <h2>Settings</h2>
+
+        <label for="api-key">Anthropic API key</label>
+        <input id="api-key" type="password" placeholder="sk-ant-…" autocomplete="off" />
+        <p class="hint">Stored only in this browser (localStorage). Get a key at
+          <a href="https://platform.claude.com" target="_blank" rel="noopener">platform.claude.com</a>.</p>
+
+        <label for="model-select">Model</label>
+        <select id="model-select"></select>
+        <button id="refresh-models" class="pill-btn">↻ Refresh model list</button>
+
+        <label for="persona">Assistant persona (system prompt)</label>
+        <textarea id="persona" rows="4"></textarea>
+
+        <label for="thinking-toggle" class="row-label">
+          <input id="thinking-toggle" type="checkbox" checked />
+          Extended thinking (show reasoning summaries)
+        </label>
+
+        <label for="effort-select">Effort</label>
+        <select id="effort-select">
+          <option value="">Default (high)</option>
+          <option value="low">Low — fastest</option>
+          <option value="medium">Medium</option>
+          <option value="max">Max — most thorough</option>
+        </select>
+
+        <label for="max-tokens">Max response tokens</label>
+        <input id="max-tokens" type="number" min="256" max="64000" step="256" />
+
+        <div class="modal-actions">
+          <button id="settings-save" class="primary-btn">Save</button>
+          <button id="settings-close" class="pill-btn">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
