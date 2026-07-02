@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#16130f" />
+  <meta name="theme-color" content="#05070f" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>PocketClaw</title>
@@ -31,6 +31,22 @@
         <button id="new-chat-btn" class="pill-btn">+ New chat</button>
       </div>
       <ul id="convo-list"></ul>
+
+      <div class="drawer-head loops-head">
+        <span>🔁 Loops</span>
+        <button id="new-loop-btn" class="pill-btn">+ New</button>
+      </div>
+      <ul id="loop-list"></ul>
+      <p class="hint drawer-hint">Loops run a prompt on a schedule. With the CLI gateway
+        they run on your computer even while this app is closed.</p>
+
+      <div class="drawer-head loops-head">
+        <span>⚡ Skills</span>
+        <button id="new-skill-btn" class="pill-btn">+ New</button>
+      </div>
+      <ul id="skill-list"></ul>
+      <p class="hint drawer-hint">Skills shape how PocketClaw behaves. Tap the dot to
+        toggle, tap the name to edit.</p>
     </nav>
 
     <!-- Chat area -->
@@ -51,8 +67,76 @@
       <button id="attach-btn" class="icon-btn" aria-label="Attach photo">📷</button>
       <input id="file-input" type="file" accept="image/*" multiple hidden />
       <textarea id="input" rows="1" placeholder="Message PocketClaw…" enterkeyhint="send"></textarea>
+      <button id="mic-btn" class="icon-btn" aria-label="Dictate">🎤</button>
       <button id="send-btn" class="send-btn" aria-label="Send">➤</button>
     </footer>
+
+    <!-- Loop editor modal -->
+    <div id="loop-backdrop" class="modal-backdrop hidden">
+      <div id="loop-modal" class="modal">
+        <h2 id="loop-modal-title">New loop</h2>
+
+        <label>Start from an example</label>
+        <div id="loop-templates" class="chip-row"></div>
+
+        <label for="loop-name">Name</label>
+        <input id="loop-name" type="text" placeholder="Morning briefing" autocomplete="off" />
+
+        <label for="loop-prompt">Prompt (runs every tick — the loop remembers previous runs)</label>
+        <textarea id="loop-prompt" rows="4" placeholder="Summarize today's top tech news in 5 bullets."></textarea>
+
+        <label for="loop-every">Every</label>
+        <select id="loop-every">
+          <option value="15">15 minutes</option>
+          <option value="30">30 minutes</option>
+          <option value="60" selected>hour</option>
+          <option value="180">3 hours</option>
+          <option value="360">6 hours</option>
+          <option value="720">12 hours</option>
+          <option value="1440">24 hours</option>
+        </select>
+
+        <label for="loop-enabled" class="row-label">
+          <input id="loop-enabled" type="checkbox" checked />
+          Enabled
+        </label>
+
+        <div class="modal-actions">
+          <button id="loop-save" class="primary-btn">Save</button>
+          <button id="loop-run-now" class="pill-btn">▶ Run now</button>
+          <button id="loop-delete" class="pill-btn">🗑 Delete</button>
+          <button id="loop-close" class="pill-btn">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Skill editor modal -->
+    <div id="skill-backdrop" class="modal-backdrop hidden">
+      <div id="skill-modal" class="modal">
+        <h2 id="skill-modal-title">New skill</h2>
+
+        <label>Start from an example</label>
+        <div id="skill-templates" class="chip-row"></div>
+
+        <label for="skill-name">Name</label>
+        <input id="skill-name" type="text" placeholder="🧑‍🍳 Chef" autocomplete="off" />
+
+        <label for="skill-instructions">Instructions</label>
+        <textarea id="skill-instructions" rows="4"
+          placeholder="How should PocketClaw behave when this skill is on?"></textarea>
+
+        <label for="skill-enabled" class="row-label">
+          <input id="skill-enabled" type="checkbox" checked />
+          Enabled
+        </label>
+
+        <div class="modal-actions">
+          <button id="skill-save" class="primary-btn">Save</button>
+          <button id="skill-delete" class="pill-btn">🗑 Delete</button>
+          <button id="skill-close" class="pill-btn">Close</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Settings modal -->
     <div id="settings-backdrop" class="modal-backdrop hidden">
@@ -85,6 +169,15 @@
             Web search (answer with current information)
           </label>
 
+          <label for="firecrawl-toggle" class="row-label">
+            <input id="firecrawl-toggle" type="checkbox" />
+            🔥 Firecrawl web tools (scrape &amp; interact with pages)
+          </label>
+          <label for="firecrawl-key">Firecrawl API key (optional — keyless is rate-limited)</label>
+          <input id="firecrawl-key" type="password" placeholder="fc-…" autocomplete="off" />
+          <p class="hint">Get a free key at
+            <a href="https://firecrawl.dev" target="_blank" rel="noopener">firecrawl.dev</a>.</p>
+
           <label for="effort-select">Effort</label>
           <select id="effort-select">
             <option value="">Default (high)</option>
@@ -110,6 +203,15 @@
 
         <label for="persona">Assistant persona (system prompt)</label>
         <textarea id="persona" rows="4"></textarea>
+
+        <label for="selflearn-toggle" class="row-label">
+          <input id="selflearn-toggle" type="checkbox" checked />
+          Self-learning (remember facts about you across chats)
+        </label>
+
+        <label for="memory-edit">🧠 Memory — what PocketClaw has learned (one per line)</label>
+        <textarea id="memory-edit" rows="4" placeholder="Nothing learned yet."></textarea>
+        <button id="memory-clear" class="pill-btn">Forget everything</button>
 
         <div class="modal-actions">
           <button id="settings-save" class="primary-btn">Save</button>

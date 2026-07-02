@@ -34,6 +34,8 @@ const state = {
     persona: DEFAULT_PERSONA,
     thinking: true,
     webSearch: true,
+    firecrawl: false,
+    firecrawlKey: "",
     effort: "",
     maxTokens: 8192,
     gatewayUrl: "",       // empty = same origin as the app
@@ -44,32 +46,155 @@ const state = {
   streaming: false,
   abort: null,
   pendingImages: [],   // [{media_type, data}] queued for the next message
+  loops: [],           // [{id, name, prompt, every, enabled, convoId, lastRunAt, syncedUpTo}]
+  skills: [],          // [{id, name, instructions, enabled}]
+  memory: [],          // ["fact", ...] — self-learned notes about the user
+  loopBusy: false,
+  gatewayTandem: false,     // gateway has a Tandem Browser connected
+  gatewayFirecrawl: false,  // gateway has Firecrawl tools enabled
 };
 
+// Prompt library — 4 random chips are shown on the welcome screen; "More ideas"
+// reshuffles.
 const SUGGESTIONS = {
   api: [
     ["🗞️", "What's happening in the news today?"],
     ["✍️", "Help me draft a tricky message"],
     ["💡", "Brainstorm ideas with me"],
     ["🧠", "Teach me something surprising"],
+    ["🌍", "Plan a weekend trip within 3 hours of me — ask me where I live first"],
+    ["🍝", "Suggest dinner from ingredients I'll list"],
+    ["📷", "I'll send a photo — tell me what it is"],
+    ["🏋️", "Build me a 20-minute no-equipment workout"],
+    ["📈", "How are the markets doing right now?"],
+    ["🎬", "Recommend a movie based on three I love"],
+    ["🗣️", "Help me practice a difficult conversation"],
+    ["🧾", "I'll photograph a receipt — split it 3 ways"],
+    ["📖", "Summarize a famous book in 5 bullet points"],
+    ["🎁", "Gift ideas for someone who has everything"],
+    ["🧮", "Explain a concept like I'm five"],
+    ["🌐", "Translate something and explain the nuances"],
   ],
   cli: [
     ["📁", "Give me a quick tour of this workspace"],
     ["🐛", "Scan the code for potential bugs"],
     ["📜", "Summarize the recent git history"],
     ["🔧", "Help me build something new here"],
+    ["🧪", "Write tests for the least-tested file"],
+    ["📝", "Update the README to match the current code"],
+    ["🔍", "Find all TODO and FIXME comments and rank them"],
+    ["🏗️", "Explain the architecture of this project"],
+    ["🧹", "Find dead code we could delete"],
+    ["🛡️", "Review the code for security issues"],
+    ["⚡", "Find the slowest part of this code and speed it up"],
+    ["📦", "Are any dependencies outdated or risky?"],
+    ["🎨", "Suggest three UX improvements and implement one"],
+    ["🚀", "What should we build next? Look around and pitch me"],
+  ],
+  // shown only when the gateway reports a connected Tandem Browser
+  tandem: [
+    ["🌐", "Open the browser, check today's top stories, and summarize"],
+    ["🛒", "Look up a product in the browser and tell me the best price"],
+    ["📸", "Take a screenshot of a website and describe what you see"],
+    ["🗂️", "Look through my open tabs and summarize what I was researching"],
+  ],
+  // shown when Firecrawl web tools are enabled
+  firecrawl: [
+    ["🔥", "Scrape a webpage I give you and summarize it"],
+    ["🕸️", "Research a topic across several sites and write me a brief"],
+    ["🏷️", "Compare prices for a product across a few stores"],
+    ["🧭", "Map out all the pages on a website I name"],
   ],
 };
 
+// Loop templates — one-tap examples in the loop editor.
+const LOOP_TEMPLATES = {
+  api: [
+    { name: "Morning briefing", every: 1440,
+      prompt: "Good morning! Search the web and give me a 6-bullet briefing: top world news, top tech news, and anything genuinely surprising. Keep it tight." },
+    { name: "Markets pulse", every: 180,
+      prompt: "Check current market conditions: S&P 500, Nasdaq, Bitcoin, and anything moving unusually. 4 bullets max. Note big changes since your last check." },
+    { name: "News watch", every: 60,
+      prompt: "Search for breaking news from the last hour. If nothing truly notable happened, reply with just 'Quiet hour.' Only tell me about genuinely important developments — you remember what you already reported." },
+    { name: "Daily word & idea", every: 1440,
+      prompt: "Teach me one uncommon word worth knowing and one big idea from science or philosophy, in 4 sentences total. Never repeat one you've taught me before." },
+  ],
+  cli: [
+    { name: "Repo health check", every: 60,
+      prompt: "Check git status and recent commits. Report: uncommitted changes, new commits since your last check, and anything that looks off. If nothing changed, reply with just 'All quiet.'" },
+    { name: "Commit digest", every: 360,
+      prompt: "Summarize all commits made since your last run (use git log). Group by theme, flag anything risky. If there are none, reply 'No new commits.'" },
+    { name: "Test sentinel", every: 180,
+      prompt: "Run the project's test suite if one exists. Report pass/fail counts and any NEW failures compared to your last run." },
+    { name: "TODO tracker", every: 1440,
+      prompt: "Count TODO/FIXME comments in the codebase. Compare with your last run: what was added, what was resolved? Keep it to 5 bullets." },
+  ],
+};
+
+// Skills — toggleable instruction packs layered onto the persona.
+function defaultSkills() {
+  return [
+    { id: "sk-direct", name: "🎯 Straight shooter", enabled: true,
+      instructions: "Answer first, explain after. No filler, no hedging, no 'great question!'. Prefer lists over paragraphs when listing." },
+    { id: "sk-coach", name: "💪 Coach mode", enabled: false,
+      instructions: "Act like a supportive but demanding coach: push back on excuses, propose one concrete next action, and follow up on commitments the user made earlier." },
+    { id: "sk-eli5", name: "🧒 Explain simply", enabled: false,
+      instructions: "Explain technical topics with everyday analogies first, precision second. Define any jargon the moment you use it." },
+    { id: "sk-devil", name: "😈 Devil's advocate", enabled: false,
+      instructions: "After answering, add a short 'Counterpoint:' section that genuinely challenges the answer or the user's framing." },
+    { id: "sk-polyglot", name: "🌐 Language tutor", enabled: false,
+      instructions: "When the user writes in or asks about a foreign language, correct mistakes gently, explain the grammar in one line, and offer a more natural phrasing." },
+    { id: "sk-planner", name: "📅 Planner", enabled: false,
+      instructions: "When the user describes something they want to do, turn it into a concrete plan: numbered steps, rough time estimates, and the single most likely blocker." },
+    { id: "sk-privacy", name: "🔒 Privacy guard", enabled: false,
+      instructions: "Never write passwords, card numbers, or government IDs into long-term memory. If the user shares something highly sensitive, gently note that you won't remember it." },
+  ];
+}
+
+const SKILL_TEMPLATES = [
+  { name: "✍️ Ghostwriter", instructions: "When drafting text for the user, match their voice from earlier messages, offer 2 variants (safe + bold), and keep subject lines under 8 words." },
+  { name: "🧑‍🍳 Chef", instructions: "For any food question: suggest a dish, list ingredients with amounts, then numbered steps. Always include one shortcut and one upgrade." },
+  { name: "📊 Analyst", instructions: "Quantify everything you can. Use tables for comparisons. State your confidence level and what data would change your answer." },
+  { name: "🧘 Minimalist", instructions: "Reply in 3 sentences or fewer unless the user explicitly asks for depth." },
+  { name: "💼 Negotiator", instructions: "When money, salaries, or deals come up: give the user an anchor number, a walk-away point, and one phrase to say verbatim." },
+  { name: "🎓 Study buddy", instructions: "When the user is learning something, end each answer with one quick quiz question about it. Grade their previous answer honestly first." },
+  { name: "🧾 Budgeter", instructions: "When purchases come up, compare cost against alternatives, note the per-month equivalent, and give a clear buy / wait / skip verdict." },
+  { name: "🩺 Health coach", instructions: "For health and fitness topics: practical, evidence-based guidance, no diagnosis, and always flag when something deserves a real doctor." },
+];
+
+/* ---------- system prompt composition ---------- */
+
+function composeSystemPrompt() {
+  let sys = state.settings.persona || DEFAULT_PERSONA;
+  const active = state.skills.filter((s) => s.enabled && s.instructions);
+  if (active.length) {
+    sys +=
+      "\n\n# Active skills\n" +
+      active.map((s) => "## " + s.name + "\n" + s.instructions).join("\n");
+  }
+  if (state.settings.selfLearn !== false && state.memory.length) {
+    sys +=
+      "\n\n# Long-term memory about this user (learned from past chats)\n" +
+      state.memory.map((m) => "- " + m).join("\n");
+  }
+  return sys;
+}
+
 function loadState() {
-  try {
-    const s = JSON.parse(localStorage.getItem("pc_settings"));
-    if (s) Object.assign(state.settings, s);
-  } catch (_) {}
-  try {
-    const c = JSON.parse(localStorage.getItem("pc_convos"));
-    if (Array.isArray(c)) state.convos = c;
-  } catch (_) {}
+  const read = (key, fallback) => {
+    try {
+      const v = JSON.parse(localStorage.getItem(key));
+      return v ?? fallback;
+    } catch (_) {
+      return fallback;
+    }
+  };
+  Object.assign(state.settings, read("pc_settings", {}) || {});
+  state.convos = Array.isArray(read("pc_convos", [])) ? read("pc_convos", []) : [];
+  state.loops = Array.isArray(read("pc_loops", [])) ? read("pc_loops", []) : [];
+  state.memory = Array.isArray(read("pc_memory", [])) ? read("pc_memory", []) : [];
+  const skills = read("pc_skills", null);
+  state.skills = Array.isArray(skills) ? skills : defaultSkills();
   state.currentId = localStorage.getItem("pc_current") || null;
 }
 
@@ -79,6 +204,15 @@ function saveSettings() {
 function saveConvos() {
   localStorage.setItem("pc_convos", JSON.stringify(state.convos));
   if (state.currentId) localStorage.setItem("pc_current", state.currentId);
+}
+function saveLoops() {
+  localStorage.setItem("pc_loops", JSON.stringify(state.loops));
+}
+function saveSkills() {
+  localStorage.setItem("pc_skills", JSON.stringify(state.skills));
+}
+function saveMemory() {
+  localStorage.setItem("pc_memory", JSON.stringify(state.memory));
 }
 
 function currentConvo() {
@@ -264,8 +398,15 @@ function renderSuggestions() {
   const box = $("suggestions");
   box.innerHTML = "";
   if (!backendConfigured()) return;
-  const set = SUGGESTIONS[state.settings.backend] || SUGGESTIONS.api;
-  for (const [emoji, text] of set) {
+  let pool = [...(SUGGESTIONS[state.settings.backend] || SUGGESTIONS.api)];
+  if (state.settings.backend === "cli") {
+    if (state.gatewayTandem) pool = pool.concat(SUGGESTIONS.tandem);
+    if (state.gatewayFirecrawl) pool = pool.concat(SUGGESTIONS.firecrawl);
+  } else if (state.settings.firecrawl) {
+    pool = pool.concat(SUGGESTIONS.firecrawl);
+  }
+  const picks = pool.sort(() => Math.random() - 0.5).slice(0, 4);
+  for (const [emoji, text] of picks) {
     const chip = document.createElement("button");
     chip.className = "suggestion-chip";
     chip.textContent = emoji + " " + text;
@@ -276,6 +417,11 @@ function renderSuggestions() {
     };
     box.appendChild(chip);
   }
+  const more = document.createElement("button");
+  more.className = "suggestion-chip more-chip";
+  more.textContent = "↻ More ideas";
+  more.onclick = renderSuggestions;
+  box.appendChild(more);
 }
 
 function appendBubble(role, content, thinking, images) {
@@ -326,6 +472,13 @@ function addCopyAction(bubble, rawText) {
     setTimeout(() => (btn.textContent = "⧉ copy"), 1200);
   };
   actions.appendChild(btn);
+  if (navigator.share) {
+    const share = document.createElement("button");
+    share.textContent = "↗ share";
+    share.onclick = () =>
+      navigator.share({ text: rawText, title: "PocketClaw" }).catch(() => {});
+    actions.appendChild(share);
+  }
   bubble.appendChild(actions);
 }
 
@@ -410,7 +563,7 @@ function buildRequestBody(convo) {
     system: [
       {
         type: "text",
-        text: s.persona || DEFAULT_PERSONA,
+        text: composeSystemPrompt(),
         cache_control: { type: "ephemeral" },
       },
     ],
@@ -431,11 +584,22 @@ function buildRequestBody(convo) {
       return { role: m.role, content: m.content };
     }),
   };
+  const tools = [];
   if (s.webSearch) {
-    body.tools = [
-      { type: searchToolVariant(s.model), name: "web_search", max_uses: 5 },
-    ];
+    tools.push({ type: searchToolVariant(s.model), name: "web_search", max_uses: 5 });
   }
+  if (s.firecrawl) {
+    // Firecrawl's hosted MCP server via the Claude API MCP connector
+    const server = {
+      type: "url",
+      url: "https://mcp.firecrawl.dev/v2/mcp",
+      name: "firecrawl",
+    };
+    if (s.firecrawlKey) server.authorization_token = s.firecrawlKey;
+    body.mcp_servers = [server];
+    tools.push({ type: "mcp_toolset", mcp_server_name: "firecrawl" });
+  }
+  if (tools.length) body.tools = tools;
   const adaptive = ADAPTIVE_RE.test(s.model);
   const isFable = /fable-5|mythos-5/.test(s.model);
   if (adaptive && s.thinking) {
@@ -451,9 +615,11 @@ function buildRequestBody(convo) {
 }
 
 async function streamChat(convo, onThinking, onText, onActivity, signal) {
+  const headers = apiHeaders();
+  if (state.settings.firecrawl) headers["anthropic-beta"] = "mcp-client-2025-11-20";
   const res = await fetch(API_BASE + "/v1/messages", {
     method: "POST",
-    headers: apiHeaders(),
+    headers,
     body: JSON.stringify(buildRequestBody(convo)),
     signal,
   });
@@ -500,6 +666,8 @@ async function streamChat(convo, onThinking, onText, onActivity, signal) {
             else if (b.type === "web_search_tool_result") {
               const n = Array.isArray(b.content) ? b.content.length : 0;
               onActivity(n ? "🔍 " + n + " results" : "🔍 search finished");
+            } else if (b.type === "mcp_tool_use") {
+              onActivity("🔥 " + (b.name || "web tool"));
             }
             break;
           }
@@ -542,18 +710,22 @@ function gatewayBase() {
   return u || location.origin;
 }
 
-async function streamChatCli(convo, userText, images, onThinking, onText, onTool, signal) {
+function gwHeaders() {
   const headers = { "content-type": "application/json" };
   if (state.settings.gatewayToken) {
     headers.authorization = "Bearer " + state.settings.gatewayToken;
   }
+  return headers;
+}
+
+async function streamChatCli(convo, userText, images, onThinking, onText, onTool, signal) {
   const res = await fetch(gatewayBase() + "/api/chat", {
     method: "POST",
-    headers,
+    headers: gwHeaders(),
     body: JSON.stringify({
       prompt: userText,
       sessionId: convo.cliSessionId || undefined,
-      persona: state.settings.persona || undefined,
+      persona: composeSystemPrompt(),
       images: images && images.length ? images : undefined,
     }),
     signal,
@@ -670,6 +842,7 @@ async function send() {
   state.abort = new AbortController();
   sendBtn.textContent = "◼";
   sendBtn.classList.add("stop");
+  buzz(10);
 
   let stopReason = null;
   let errorMsg = null;
@@ -703,6 +876,7 @@ async function send() {
   state.abort = null;
   sendBtn.textContent = "➤";
   sendBtn.classList.remove("stop");
+  buzz(20);
   doPaint(); // final synchronous paint — a queued rAF may not have fired yet
   if (thinkingBox) {
     thinkingBox.firstChild.textContent =
@@ -735,6 +909,7 @@ async function send() {
     });
     addCopyAction(bubble, assistantText);
     autoTitle(convo);
+    learnFromExchange(convo);
   } else if (stopReason === "aborted") {
     convo.messages.pop(); // nothing came back; drop the user turn so history stays valid
     inputEl.value = text;
@@ -784,6 +959,440 @@ async function autoTitle(convo) {
   } catch (_) {
     /* title stays as the truncated first message */
   }
+}
+
+/* ---------- self-learning memory ---------- */
+
+async function learnFromExchange(convo) {
+  if (state.settings.selfLearn === false || !state.settings.apiKey) return;
+  const msgs = convo.messages;
+  if (msgs.length < 2) return;
+  const user = msgs[msgs.length - 2];
+  const reply = msgs[msgs.length - 1];
+  if (!user || user.role !== "user") return;
+  try {
+    const res = await fetch(API_BASE + "/v1/messages", {
+      method: "POST",
+      headers: apiHeaders(),
+      body: JSON.stringify({
+        model: "claude-haiku-4-5",
+        max_tokens: 800,
+        system:
+          "You maintain a small long-term memory for a personal assistant. " +
+          "Given the current memory and the latest exchange, output the COMPLETE " +
+          "updated memory as a JSON array of short strings (max 25 items, each " +
+          "under 140 chars). Keep only durable, useful facts about the user: name, " +
+          "preferences, projects, goals, people, recurring context. Merge duplicates, " +
+          "drop stale items, never invent facts. Output ONLY the JSON array.",
+        messages: [
+          {
+            role: "user",
+            content:
+              "Current memory:\n" + JSON.stringify(state.memory) +
+              "\n\nLatest exchange:\nUser: " + String(user.content).slice(0, 1200) +
+              "\nAssistant: " + String(reply.content).slice(0, 1200),
+          },
+        ],
+      }),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const text = data?.content?.find((b) => b.type === "text")?.text || "";
+    const jsonStr = text.slice(text.indexOf("["), text.lastIndexOf("]") + 1);
+    const mem = JSON.parse(jsonStr);
+    if (Array.isArray(mem)) {
+      state.memory = mem.filter((m) => typeof m === "string").slice(0, 25);
+      saveMemory();
+    }
+  } catch (_) {
+    /* memory keeps its previous state */
+  }
+}
+
+/* ---------- loops: scheduled prompts ---------- */
+
+function fmtEvery(min) {
+  return min >= 1440 ? min / 1440 + "d" : min >= 60 ? min / 60 + "h" : min + "m";
+}
+
+function ensureLoopConvo(loop) {
+  let convo = state.convos.find((c) => c.id === loop.convoId);
+  if (!convo) {
+    convo = {
+      id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      title: "🔁 " + loop.name,
+      messages: [],
+      titleDone: true, // loop convos keep their loop name
+      updated: Date.now(),
+    };
+    state.convos.unshift(convo);
+    loop.convoId = convo.id;
+    saveLoops();
+    saveConvos();
+  }
+  return convo;
+}
+
+function renderLoopList() {
+  const ul = $("loop-list");
+  ul.innerHTML = "";
+  for (const loop of state.loops) {
+    const li = document.createElement("li");
+    const dot = document.createElement("span");
+    dot.className = "loop-dot" + (loop.enabled ? " on" : "");
+    const name = document.createElement("span");
+    name.className = "loop-name";
+    name.textContent = loop.name;
+    const meta = document.createElement("span");
+    meta.className = "loop-meta";
+    meta.textContent =
+      fmtEvery(loop.every) +
+      (loop.lastRunAt ? " · " + new Date(loop.lastRunAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "");
+    li.appendChild(dot);
+    li.appendChild(name);
+    li.appendChild(meta);
+    li.onclick = () => openLoopEditor(loop.id);
+    ul.appendChild(li);
+  }
+}
+
+let editingLoopId = null;
+
+function openLoopEditor(loopId) {
+  editingLoopId = loopId;
+  const loop = state.loops.find((l) => l.id === loopId);
+  $("loop-modal-title").textContent = loop ? "Edit loop" : "New loop";
+  $("loop-name").value = loop?.name || "";
+  $("loop-prompt").value = loop?.prompt || "";
+  $("loop-every").value = String(loop?.every || 60);
+  $("loop-enabled").checked = loop ? !!loop.enabled : true;
+  $("loop-delete").classList.toggle("hidden", !loop);
+  $("loop-run-now").classList.toggle("hidden", !loop);
+  const tpls = $("loop-templates");
+  tpls.innerHTML = "";
+  const set = LOOP_TEMPLATES[state.settings.backend] || LOOP_TEMPLATES.api;
+  for (const t of set) {
+    const chip = document.createElement("button");
+    chip.className = "suggestion-chip";
+    chip.textContent = t.name;
+    chip.onclick = () => {
+      $("loop-name").value = t.name;
+      $("loop-prompt").value = t.prompt;
+      $("loop-every").value = String(t.every);
+    };
+    tpls.appendChild(chip);
+  }
+  $("loop-backdrop").classList.remove("hidden");
+}
+
+function closeLoopEditor() {
+  $("loop-backdrop").classList.add("hidden");
+  editingLoopId = null;
+}
+
+function saveLoopFromForm() {
+  const name = $("loop-name").value.trim();
+  const prompt = $("loop-prompt").value.trim();
+  if (!name || !prompt) {
+    alert("A loop needs a name and a prompt.");
+    return;
+  }
+  let loop = state.loops.find((l) => l.id === editingLoopId);
+  if (!loop) {
+    loop = { id: "l" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) };
+    state.loops.push(loop);
+  }
+  loop.name = name;
+  loop.prompt = prompt;
+  loop.every = Number($("loop-every").value) || 60;
+  loop.enabled = $("loop-enabled").checked;
+  const convo = state.convos.find((c) => c.id === loop.convoId);
+  if (convo) { convo.title = "🔁 " + name; saveConvos(); }
+  saveLoops();
+  renderLoopList();
+  renderConvoList();
+  pushLoopsToGateway();
+  closeLoopEditor();
+}
+
+function deleteLoopFromForm() {
+  if (!editingLoopId) return;
+  if (!confirm("Delete this loop? (Its conversation stays.)")) return;
+  state.loops = state.loops.filter((l) => l.id !== editingLoopId);
+  saveLoops();
+  renderLoopList();
+  pushLoopsToGateway();
+  closeLoopEditor();
+}
+
+async function pushLoopsToGateway() {
+  if (state.settings.backend !== "cli") return;
+  try {
+    await fetch(gatewayBase() + "/api/loops", {
+      method: "PUT",
+      headers: gwHeaders(),
+      body: JSON.stringify({
+        loops: state.loops.map((l) => ({
+          id: l.id, name: l.name, prompt: l.prompt, every: l.every, enabled: l.enabled,
+        })),
+      }),
+    });
+  } catch (_) {}
+}
+
+// CLI mode: the gateway runs loops in the background; pull new results in.
+async function syncLoopRuns() {
+  if (state.settings.backend !== "cli" || !state.loops.length) return;
+  let serverLoops;
+  try {
+    const res = await fetch(gatewayBase() + "/api/loops", { headers: gwHeaders() });
+    if (!res.ok) return;
+    serverLoops = (await res.json()).loops || [];
+  } catch (_) {
+    return;
+  }
+  let changed = false;
+  for (const sl of serverLoops) {
+    const loop = state.loops.find((l) => l.id === sl.id);
+    if (!loop) continue;
+    loop.lastRunAt = sl.lastRunAt || loop.lastRunAt;
+    const newRuns = (sl.runs || []).filter((r) => r.at > (loop.syncedUpTo || 0));
+    if (!newRuns.length) continue;
+    const convo = ensureLoopConvo(loop);
+    for (const run of newRuns) {
+      convo.messages.push({
+        role: "user",
+        content: "🔁 " + loop.name + " — " + new Date(run.at).toLocaleString(),
+      });
+      convo.messages.push({
+        role: "assistant",
+        content: run.isError ? "⚠ " + run.text : run.text,
+      });
+      loop.syncedUpTo = run.at;
+    }
+    if (sl.sessionId) convo.cliSessionId = sl.sessionId;
+    convo.updated = Date.now();
+    changed = true;
+  }
+  if (changed) {
+    saveLoops();
+    saveConvos();
+    renderConvoList();
+    renderLoopList();
+    if (currentConvo() && state.loops.some((l) => l.convoId === state.currentId)) {
+      renderMessages();
+    }
+  }
+}
+
+// API mode: run due loops client-side while the app is open.
+async function runLoopApi(loop) {
+  if (state.loopBusy || state.streaming) return;
+  state.loopBusy = true;
+  loop.lastRunAt = Date.now();
+  saveLoops();
+  renderLoopList();
+  const convo = ensureLoopConvo(loop);
+  convo.messages.push({ role: "user", content: loop.prompt });
+  let text = "";
+  try {
+    await streamChat(
+      convo,
+      () => {},
+      (t) => { text += t; },
+      () => {},
+      undefined
+    );
+  } catch (e) {
+    text = "⚠ Loop run failed: " + (e.message || e);
+  }
+  convo.messages.push({ role: "assistant", content: text || "(no output)" });
+  convo.updated = Date.now();
+  saveConvos();
+  renderConvoList();
+  if (state.currentId === convo.id) renderMessages();
+  state.loopBusy = false;
+}
+
+function runLoopNow(loopId) {
+  const loop = state.loops.find((l) => l.id === loopId);
+  if (!loop) return;
+  if (state.settings.backend === "cli") {
+    pushLoopsToGateway().then(() =>
+      fetch(gatewayBase() + "/api/loops/run?id=" + encodeURIComponent(loop.id), {
+        method: "POST",
+        headers: gwHeaders(),
+      }).catch(() => {})
+    );
+    setTimeout(syncLoopRuns, 20000);
+    setTimeout(syncLoopRuns, 60000);
+  } else {
+    runLoopApi(loop);
+  }
+  closeLoopEditor();
+  closeDrawer();
+}
+
+function checkLoops() {
+  const now = Date.now();
+  if (state.settings.backend === "cli") {
+    syncLoopRuns();
+    return;
+  }
+  if (!state.settings.apiKey) return;
+  for (const loop of state.loops) {
+    if (!loop.enabled) continue;
+    const every = Math.max(5, Number(loop.every) || 60) * 60000;
+    if (!loop.lastRunAt || now - loop.lastRunAt >= every) {
+      runLoopApi(loop);
+      break; // one per tick
+    }
+  }
+}
+
+/* ---------- skills manager ---------- */
+
+let editingSkillId = null;
+
+function renderSkillList() {
+  const ul = $("skill-list");
+  ul.innerHTML = "";
+  for (const skill of state.skills) {
+    const li = document.createElement("li");
+    const dot = document.createElement("span");
+    dot.className = "loop-dot" + (skill.enabled ? " on" : "");
+    dot.title = skill.enabled ? "enabled" : "disabled";
+    dot.onclick = (e) => {
+      e.stopPropagation();
+      skill.enabled = !skill.enabled;
+      saveSkills();
+      renderSkillList();
+    };
+    const name = document.createElement("span");
+    name.className = "loop-name";
+    name.textContent = skill.name;
+    li.appendChild(dot);
+    li.appendChild(name);
+    li.onclick = () => openSkillEditor(skill.id);
+    ul.appendChild(li);
+  }
+}
+
+function openSkillEditor(skillId) {
+  editingSkillId = skillId;
+  const skill = state.skills.find((s) => s.id === skillId);
+  $("skill-modal-title").textContent = skill ? "Edit skill" : "New skill";
+  $("skill-name").value = skill?.name || "";
+  $("skill-instructions").value = skill?.instructions || "";
+  $("skill-enabled").checked = skill ? !!skill.enabled : true;
+  $("skill-delete").classList.toggle("hidden", !skill);
+  const tpls = $("skill-templates");
+  tpls.innerHTML = "";
+  const addChip = (t) => {
+    const chip = document.createElement("button");
+    chip.className = "suggestion-chip";
+    chip.textContent = t.name;
+    chip.onclick = () => {
+      $("skill-name").value = t.name;
+      $("skill-instructions").value = t.instructions;
+    };
+    tpls.appendChild(chip);
+    return chip;
+  };
+  for (const t of SKILL_TEMPLATES) addChip(t);
+  // ✨ PocketClaw invents skills tailored to how you actually use it
+  const suggest = document.createElement("button");
+  suggest.className = "suggestion-chip more-chip";
+  suggest.id = "suggest-skills";
+  suggest.textContent = "✨ Suggest from my chats";
+  suggest.onclick = () => suggestSkills(suggest, addChip);
+  tpls.appendChild(suggest);
+  $("skill-backdrop").classList.remove("hidden");
+}
+
+async function suggestSkills(btn, addChip) {
+  if (!state.settings.apiKey) {
+    alert("Add your Anthropic API key in Settings to get personalized suggestions.");
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = "✨ thinking…";
+  try {
+    const recent = state.convos
+      .slice(0, 8)
+      .flatMap((c) => c.messages.filter((m) => m.role === "user").slice(0, 3))
+      .map((m) => String(m.content).slice(0, 140))
+      .slice(0, 20);
+    const res = await fetch(API_BASE + "/v1/messages", {
+      method: "POST",
+      headers: apiHeaders(),
+      body: JSON.stringify({
+        model: "claude-haiku-4-5",
+        max_tokens: 700,
+        system:
+          'You design "skills" (behavior instructions) for a personal assistant, ' +
+          "tailored to how this user actually uses it. Output ONLY a JSON array of " +
+          'exactly 3 items shaped {"name":"<emoji> <2-3 words>","instructions":"<one ' +
+          'or two sentences of behavior instructions>"}. Make them specific to the ' +
+          "user's visible interests, not generic.",
+        messages: [
+          {
+            role: "user",
+            content:
+              "What I know about the user:\n" + JSON.stringify(state.memory) +
+              "\n\nTheir recent messages:\n" + JSON.stringify(recent),
+          },
+        ],
+      }),
+    });
+    const data = await res.json();
+    const text = data?.content?.find((b) => b.type === "text")?.text || "";
+    const arr = JSON.parse(text.slice(text.indexOf("["), text.lastIndexOf("]") + 1));
+    for (const t of arr.slice(0, 3)) {
+      if (t && t.name && t.instructions) {
+        const chip = addChip({ name: String(t.name).slice(0, 40), instructions: String(t.instructions).slice(0, 500) });
+        chip.classList.add("suggested");
+      }
+    }
+    btn.remove();
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = "✨ Suggest from my chats";
+    alert("Couldn't get suggestions: " + (e.message || e));
+  }
+}
+
+function closeSkillEditor() {
+  $("skill-backdrop").classList.add("hidden");
+  editingSkillId = null;
+}
+
+function saveSkillFromForm() {
+  const name = $("skill-name").value.trim();
+  const instructions = $("skill-instructions").value.trim();
+  if (!name || !instructions) {
+    alert("A skill needs a name and instructions.");
+    return;
+  }
+  let skill = state.skills.find((s) => s.id === editingSkillId);
+  if (!skill) {
+    skill = { id: "sk" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) };
+    state.skills.push(skill);
+  }
+  skill.name = name;
+  skill.instructions = instructions;
+  skill.enabled = $("skill-enabled").checked;
+  saveSkills();
+  renderSkillList();
+  closeSkillEditor();
+}
+
+function deleteSkillFromForm() {
+  if (!editingSkillId) return;
+  state.skills = state.skills.filter((s) => s.id !== editingSkillId);
+  saveSkills();
+  renderSkillList();
+  closeSkillEditor();
 }
 
 /* ---------- photo attachments ---------- */
@@ -863,10 +1472,14 @@ function openSettings() {
   $("persona").value = s.persona;
   $("thinking-toggle").checked = s.thinking;
   $("websearch-toggle").checked = s.webSearch;
+  $("firecrawl-toggle").checked = !!s.firecrawl;
+  $("firecrawl-key").value = s.firecrawlKey;
   $("effort-select").value = s.effort;
   $("max-tokens").value = s.maxTokens;
   $("gateway-url").value = s.gatewayUrl;
   $("gateway-token").value = s.gatewayToken;
+  $("selflearn-toggle").checked = s.selfLearn !== false;
+  $("memory-edit").value = state.memory.join("\n");
   populateModelSelect(FALLBACK_MODELS);
   updateBackendFields();
   $("settings-backdrop").classList.remove("hidden");
@@ -921,11 +1534,18 @@ function saveSettingsFromForm() {
   s.persona = $("persona").value.trim() || DEFAULT_PERSONA;
   s.thinking = $("thinking-toggle").checked;
   s.webSearch = $("websearch-toggle").checked;
+  s.firecrawl = $("firecrawl-toggle").checked;
+  s.firecrawlKey = $("firecrawl-key").value.trim();
   s.effort = $("effort-select").value;
   s.maxTokens = Number($("max-tokens").value) || 8192;
   s.gatewayUrl = $("gateway-url").value.trim();
   s.gatewayToken = $("gateway-token").value.trim();
+  s.selfLearn = $("selflearn-toggle").checked;
+  state.memory = $("memory-edit").value
+    .split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 25);
+  saveMemory();
   saveSettings();
+  pushLoopsToGateway();
   closeSettings();
   renderMessages();
 }
@@ -934,6 +1554,8 @@ function saveSettingsFromForm() {
 
 function openDrawer() {
   renderConvoList();
+  renderLoopList();
+  renderSkillList();
   $("drawer").classList.remove("hidden");
   $("drawer-backdrop").classList.remove("hidden");
 }
@@ -947,6 +1569,54 @@ function closeDrawer() {
 function autoresize() {
   inputEl.style.height = "auto";
   inputEl.style.height = Math.min(inputEl.scrollHeight, 140) + "px";
+}
+
+function buzz(ms) {
+  try { navigator.vibrate?.(ms); } catch (_) {}
+}
+
+/* voice dictation via the Web Speech API (feature-detected) */
+let recognition = null;
+let recording = false;
+
+function setupVoice() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const btn = $("mic-btn");
+  if (!SR) {
+    btn.classList.add("hidden");
+    return;
+  }
+  btn.onclick = () => {
+    if (recording) {
+      recognition.stop();
+      return;
+    }
+    recognition = new SR();
+    recognition.lang = navigator.language || "en-US";
+    recognition.interimResults = true;
+    const baseText = inputEl.value ? inputEl.value.replace(/\s+$/, "") + " " : "";
+    recognition.onresult = (e) => {
+      let text = "";
+      for (const r of e.results) text += r[0].transcript;
+      inputEl.value = baseText + text;
+      autoresize();
+    };
+    recognition.onend = () => {
+      recording = false;
+      btn.classList.remove("rec");
+      inputEl.focus();
+    };
+    recognition.onerror = () => {
+      recording = false;
+      btn.classList.remove("rec");
+    };
+    try {
+      recognition.start();
+      recording = true;
+      btn.classList.add("rec");
+      buzz(10);
+    } catch (_) {}
+  };
 }
 
 /* ---------- init ---------- */
@@ -994,21 +1664,46 @@ function init() {
   $("settings-save").onclick = saveSettingsFromForm;
   $("refresh-models").onclick = () => refreshModels(true);
   $("backend-select").onchange = updateBackendFields;
+  $("memory-clear").onclick = () => {
+    if (!confirm("Forget everything PocketClaw has learned about you?")) return;
+    state.memory = [];
+    saveMemory();
+    $("memory-edit").value = "";
+  };
 
-  // First run while served from the PocketClaw gateway → default to the CLI backend.
-  if (!localStorage.getItem("pc_settings")) {
-    fetch("api/health")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((h) => {
-        if (h && h.backend === "claude-cli") {
-          state.settings.backend = "cli";
-          saveSettings();
-          renderMessages();
-          closeSettings();
-        }
-      })
-      .catch(() => {});
-  }
+  // loops
+  $("new-loop-btn").onclick = () => openLoopEditor(null);
+  $("loop-save").onclick = saveLoopFromForm;
+  $("loop-close").onclick = closeLoopEditor;
+  $("loop-delete").onclick = deleteLoopFromForm;
+  $("loop-run-now").onclick = () => runLoopNow(editingLoopId);
+  setInterval(checkLoops, 60000);
+  setTimeout(checkLoops, 4000);
+
+  // skills
+  $("new-skill-btn").onclick = () => openSkillEditor(null);
+  $("skill-save").onclick = saveSkillFromForm;
+  $("skill-close").onclick = closeSkillEditor;
+  $("skill-delete").onclick = deleteSkillFromForm;
+
+  setupVoice();
+
+  // Probe the gateway: first run served from it → default to the CLI backend;
+  // also learn which superpowers (Tandem browser, Firecrawl) it has.
+  fetch(gatewayBase() + "/api/health", { headers: gwHeaders() })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((h) => {
+      if (!h || h.backend !== "claude-cli") return;
+      state.gatewayTandem = !!h.tandem;
+      state.gatewayFirecrawl = !!h.firecrawl;
+      if (!localStorage.getItem("pc_settings")) {
+        state.settings.backend = "cli";
+        saveSettings();
+        closeSettings();
+      }
+      renderMessages();
+    })
+    .catch(() => {});
 
   // Gentle first-run nudge — re-check at fire time so the gateway health
   // check (which may flip the backend to "cli") wins the race.

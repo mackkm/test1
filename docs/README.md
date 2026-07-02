@@ -12,20 +12,32 @@ in** — two ways:
 
 ## Features
 
-- 📱 Mobile-first chat UI, installable to your home screen like a native app
+- 📱 Mobile-first, futuristic glass-and-glow UI, installable to your home screen
 - 🔑 Bring your own Anthropic API key **or** point it at your Claude Code CLI
-- 🔍 **Web search** — Claude can search the internet for current information, with live
-  "Searching: …" activity (API mode; toggle in Settings)
-- 📷 **Vision** — attach photos from your camera or gallery. In API mode they're sent to
-  Claude directly; in CLI mode the gateway saves them so the agent can Read them
+- 🔁 **Loops** — recurring prompts on a schedule (morning briefing, repo health check,
+  news watch…). With the CLI gateway they run on your computer **even while the app is
+  closed**, and each loop keeps its own memory of previous runs
+- ⚡ **Skills** — toggleable instruction packs that shape behavior (Straight shooter,
+  Coach mode, Devil's advocate, …) plus your own custom skills
+- 🧠 **Self-learning** — PocketClaw quietly learns durable facts about you
+  (preferences, projects, people) and uses them in every chat. Fully viewable,
+  editable, and erasable in Settings
+- 🔍 **Web search** — current information with live "Searching: …" activity (API mode)
+- 🔥 **Firecrawl** (firecrawl.dev) — scrape, search, and interact with web pages in
+  both modes (API mode via the MCP connector; CLI mode via the gateway)
+- 🌐 **Tandem Browser** (tandembrowser.org) — in CLI mode the agent can drive a real
+  browser on your computer: open tabs, click, fill forms, take screenshots
+- 📷 **Vision** — attach photos from your camera or gallery in both modes
 - 🤖 In CLI mode: a real agent — tool use shown live ("agent activity"), per-conversation
-  session resume, persona forwarded via `--append-system-prompt`
-- ⚡ Streaming responses with live "thinking" summaries (adaptive thinking)
+  session resume, persona + skills + memory forwarded via `--append-system-prompt`
 - 🏷️ Conversations auto-title themselves (a tiny Haiku call, when an API key is set)
+- ⚡ Streaming responses with live "thinking" summaries (adaptive thinking)
 - 🧠 Model picker with live model list from the API (Opus 4.8, Fable 5, Sonnet 5, Haiku 4.5, …)
-- 🎭 Customizable assistant persona (system prompt) and effort level (low → max)
-- 💬 Multiple conversations saved locally; suggested prompts to get started
-- ⧉ Copy buttons on replies and code blocks; markdown tables and code rendering
+- 🎭 Customizable persona and effort level (low → max); big shuffled prompt library
+- ✨ **Skill suggestions** — PocketClaw can invent new skills tailored to how you
+  actually use it (from your memory + recent chats)
+- 🎤 Voice dictation (Web Speech API), ↗ native share on replies, haptic feedback
+- 💬 Multiple conversations saved locally; copy buttons; markdown tables
 - 📴 App shell works offline (chatting needs a connection, of course)
 
 ## Run the Claude Code CLI gateway
@@ -52,6 +64,19 @@ Configuration (environment variables):
 | `POCKETCLAW_WORKSPACE` | Directory the agent works in | current dir |
 | `CLAUDE_BIN` | Path to the `claude` binary | `claude` |
 | `CLAUDE_ARGS` | Extra CLI args, e.g. `--permission-mode acceptEdits` or `--allowedTools Read,Grep,WebSearch` | *(none)* |
+| `TANDEM_MCP` | Connect a [Tandem Browser](https://tandembrowser.org): a streamable-http URL like `http://localhost:5173/mcp`, or a local path to Tandem's MCP `server.js` | *(off)* |
+| `TANDEM_MCP_TOKEN` | Bearer token for remote Tandem connections (e.g. over Tailscale) | *(none)* |
+| `FIRECRAWL_API_KEY` | Enable [Firecrawl](https://firecrawl.dev) web tools (search/scrape/interact) | *(off)* |
+| `FIRECRAWL_MCP` | Override the Firecrawl MCP URL; set `https://mcp.firecrawl.dev/v2/mcp` for the keyless rate-limited tier | *(auto)* |
+
+Example with everything on:
+
+```sh
+TANDEM_MCP="http://localhost:5173/mcp" \
+FIRECRAWL_API_KEY="fc-..." \
+POCKETCLAW_TOKEN="something-secret" \
+node server/server.js
+```
 
 Notes:
 - By default headless Claude Code can only use tools that don't need permission
