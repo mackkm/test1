@@ -149,11 +149,13 @@
           <option value="cli">Claude Code CLI — via PocketClaw gateway</option>
         </select>
 
+        <label for="api-key">Anthropic API key</label>
+        <input id="api-key" type="password" placeholder="sk-ant-…" autocomplete="off" />
+        <p class="hint">Stored only in this browser. Powers direct API mode, smart titles
+          and self-learning — and cloud gateways that don't have their own Claude login.
+          Get one at <a href="https://platform.claude.com" target="_blank" rel="noopener">platform.claude.com</a>.</p>
+
         <div id="api-fields">
-          <label for="api-key">Anthropic API key</label>
-          <input id="api-key" type="password" placeholder="sk-ant-…" autocomplete="off" />
-          <p class="hint">Stored only in this browser (localStorage). Get a key at
-            <a href="https://platform.claude.com" target="_blank" rel="noopener">platform.claude.com</a>.</p>
 
           <label for="model-select">Model</label>
           <select id="model-select"></select>
