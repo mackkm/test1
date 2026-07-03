@@ -170,6 +170,17 @@ function readBody(req) {
 
 /* ---------- /api/chat: spawn claude, stream SSE back ---------- */
 
+/* Cloud gateways: the app forwards the user's Anthropic API key with each
+ * request so the VM never needs a baked-in Claude login. Held in memory only
+ * (never written to disk); reused for background loop runs. */
+let clientAnthropicKey = "";
+
+function childEnv() {
+  return clientAnthropicKey
+    ? { ...process.env, ANTHROPIC_API_KEY: clientAnthropicKey }
+    : process.env;
+}
+
 async function handleChat(req, res) {
   let body;
   try {
@@ -183,6 +194,7 @@ async function handleChat(req, res) {
     res.writeHead(400, { "content-type": "application/json" });
     return res.end(JSON.stringify({ error: "prompt required" }));
   }
+  if (body.anthropicKey) clientAnthropicKey = String(body.anthropicKey);
 
   // Photos from the phone: save inside the workspace so the agent can Read
   // them without a permission prompt (headless mode can't answer prompts).
@@ -226,7 +238,7 @@ async function handleChat(req, res) {
   console.log(`[chat] ${CLAUDE_BIN} ${args.join(" ")} (prompt: ${prompt.slice(0, 60)}…)`);
   const child = spawn(CLAUDE_BIN, args, {
     cwd: WORKSPACE,
-    env: process.env,
+    env: childEnv(),
     stdio: ["pipe", "pipe", "pipe"],
   });
   child.stdin.write(prompt);
@@ -357,7 +369,7 @@ function runLoop(loop) {
 
   const child = spawn(CLAUDE_BIN, args, {
     cwd: WORKSPACE,
-    env: process.env,
+    env: childEnv(),
     stdio: ["pipe", "pipe", "pipe"],
   });
   child.stdin.write(loop.prompt);

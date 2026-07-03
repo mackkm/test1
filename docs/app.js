@@ -726,6 +726,8 @@ async function streamChatCli(convo, userText, images, onThinking, onText, onTool
       prompt: userText,
       sessionId: convo.cliSessionId || undefined,
       persona: composeSystemPrompt(),
+      // cloud gateways without their own Claude login use this key instead
+      anthropicKey: state.settings.apiKey || undefined,
       images: images && images.length ? images : undefined,
     }),
     signal,
