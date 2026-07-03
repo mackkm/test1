@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#05070f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>PocketClaw</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header id="header">
+      <button id="menu-btn" class="icon-btn" aria-label="Conversations">☰</button>
+      <div id="header-title">
+        <span class="claw">🦞</span> <span id="convo-title">PocketClaw</span>
+      </div>
+      <button id="settings-btn" class="icon-btn" aria-label="Settings">⚙</button>
+    </header>
+
+    <!-- Conversation drawer -->
+    <div id="drawer-backdrop" class="hidden"></div>
+    <nav id="drawer" class="hidden">
+      <div class="drawer-head">
+        <span>Conversations</span>
+        <button id="new-chat-btn" class="pill-btn">+ New chat</button>
+      </div>
+      <ul id="convo-list"></ul>
+
+      <div class="drawer-head loops-head">
+        <span>🔁 Loops</span>
+        <button id="new-loop-btn" class="pill-btn">+ New</button>
+      </div>
+      <ul id="loop-list"></ul>
+      <p class="hint drawer-hint">Loops run a prompt on a schedule. With the CLI gateway
+        they run on your computer even while this app is closed.</p>
+
+      <div class="drawer-head loops-head">
+        <span>⚡ Skills</span>
+        <button id="new-skill-btn" class="pill-btn">+ New</button>
+      </div>
+      <ul id="skill-list"></ul>
+      <p class="hint drawer-hint">Skills shape how PocketClaw behaves. Tap the dot to
+        toggle, tap the name to edit.</p>
+    </nav>
+
+    <!-- Chat area -->
+    <main id="chat">
+      <div id="messages"></div>
+      <div id="welcome" class="welcome">
+        <div class="welcome-claw">🦞</div>
+        <h1>PocketClaw</h1>
+        <p>Your personal AI assistant, powered by Claude.</p>
+        <p id="welcome-hint" class="hint">Tap ⚙ and paste your Anthropic API key to get started.</p>
+        <div id="suggestions"></div>
+      </div>
+    </main>
+
+    <!-- Composer -->
+    <div id="attach-strip" class="hidden"></div>
+    <footer id="composer">
+      <button id="attach-btn" class="icon-btn" aria-label="Attach photo">📷</button>
+      <input id="file-input" type="file" accept="image/*" multiple hidden />
+      <textarea id="input" rows="1" placeholder="Message PocketClaw…" enterkeyhint="send"></textarea>
+      <button id="mic-btn" class="icon-btn" aria-label="Dictate">🎤</button>
+      <button id="send-btn" class="send-btn" aria-label="Send">➤</button>
+    </footer>
+
+    <!-- Loop editor modal -->
+    <div id="loop-backdrop" class="modal-backdrop hidden">
+      <div id="loop-modal" class="modal">
+        <h2 id="loop-modal-title">New loop</h2>
+
+        <label>Start from an example</label>
+        <div id="loop-templates" class="chip-row"></div>
+
+        <label for="loop-name">Name</label>
+        <input id="loop-name" type="text" placeholder="Morning briefing" autocomplete="off" />
+
+        <label for="loop-prompt">Prompt (runs every tick — the loop remembers previous runs)</label>
+        <textarea id="loop-prompt" rows="4" placeholder="Summarize today's top tech news in 5 bullets."></textarea>
+
+        <label for="loop-every">Every</label>
+        <select id="loop-every">
+          <option value="15">15 minutes</option>
+          <option value="30">30 minutes</option>
+          <option value="60" selected>hour</option>
+          <option value="180">3 hours</option>
+          <option value="360">6 hours</option>
+          <option value="720">12 hours</option>
+          <option value="1440">24 hours</option>
+        </select>
+
+        <label for="loop-enabled" class="row-label">
+          <input id="loop-enabled" type="checkbox" checked />
+          Enabled
+        </label>
+
+        <div class="modal-actions">
+          <button id="loop-save" class="primary-btn">Save</button>
+          <button id="loop-run-now" class="pill-btn">▶ Run now</button>
+          <button id="loop-delete" class="pill-btn">🗑 Delete</button>
+          <button id="loop-close" class="pill-btn">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Skill editor modal -->
+    <div id="skill-backdrop" class="modal-backdrop hidden">
+      <div id="skill-modal" class="modal">
+        <h2 id="skill-modal-title">New skill</h2>
+
+        <label>Start from an example</label>
+        <div id="skill-templates" class="chip-row"></div>
+
+        <label for="skill-name">Name</label>
+        <input id="skill-name" type="text" placeholder="🧑‍🍳 Chef" autocomplete="off" />
+
+        <label for="skill-instructions">Instructions</label>
+        <textarea id="skill-instructions" rows="4"
+          placeholder="How should PocketClaw behave when this skill is on?"></textarea>
+
+        <label for="skill-enabled" class="row-label">
+          <input id="skill-enabled" type="checkbox" checked />
+          Enabled
+        </label>
+
+        <div class="modal-actions">
+          <button id="skill-save" class="primary-btn">Save</button>
+          <button id="skill-delete" class="pill-btn">🗑 Delete</button>
+          <button id="skill-close" class="pill-btn">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings modal -->
+    <div id="settings-backdrop" class="modal-backdrop hidden">
+      <div id="settings" class="modal">
+        <h2>Settings</h2>
+
+        <label for="backend-select">Backend</label>
+        <select id="backend-select">
+          <option value="api">Claude API — direct, with your API key</option>
+          <option value="cli">Claude Code CLI — via PocketClaw gateway</option>
+        </select>
+
+        <div id="api-fields">
+          <label for="api-key">Anthropic API key</label>
+          <input id="api-key" type="password" placeholder="sk-ant-…" autocomplete="off" />
+          <p class="hint">Stored only in this browser (localStorage). Get a key at
+            <a href="https://platform.claude.com" target="_blank" rel="noopener">platform.claude.com</a>.</p>
+
+          <label for="model-select">Model</label>
+          <select id="model-select"></select>
+          <button id="refresh-models" class="pill-btn">↻ Refresh model list</button>
+
+          <label for="thinking-toggle" class="row-label">
+            <input id="thinking-toggle" type="checkbox" checked />
+            Extended thinking (show reasoning summaries)
+          </label>
+
+          <label for="websearch-toggle" class="row-label">
+            <input id="websearch-toggle" type="checkbox" checked />
+            Web search (answer with current information)
+          </label>
+
+          <label for="firecrawl-toggle" class="row-label">
+            <input id="firecrawl-toggle" type="checkbox" />
+            🔥 Firecrawl web tools (scrape &amp; interact with pages)
+          </label>
+          <label for="firecrawl-key">Firecrawl API key (optional — keyless is rate-limited)</label>
+          <input id="firecrawl-key" type="password" placeholder="fc-…" autocomplete="off" />
+          <p class="hint">Get a free key at
+            <a href="https://firecrawl.dev" target="_blank" rel="noopener">firecrawl.dev</a>.</p>
+
+          <label for="effort-select">Effort</label>
+          <select id="effort-select">
+            <option value="">Default (high)</option>
+            <option value="low">Low — fastest</option>
+            <option value="medium">Medium</option>
+            <option value="xhigh">X-high — hard problems</option>
+            <option value="max">Max — most thorough</option>
+          </select>
+
+          <label for="max-tokens">Max response tokens</label>
+          <input id="max-tokens" type="number" min="256" max="64000" step="256" />
+        </div>
+
+        <div id="cli-fields" class="hidden">
+          <label for="gateway-url">Gateway URL</label>
+          <input id="gateway-url" type="text" placeholder="(this site — leave empty)" autocomplete="off" />
+          <label for="gateway-token">Gateway token (optional)</label>
+          <input id="gateway-token" type="password" autocomplete="off" />
+          <p class="hint">Run <code>node server/server.js</code> on your computer and open its
+            address on your phone. The agent runs there with Claude Code — tools, files and all.
+            Leave URL empty when you opened the app from the gateway itself.</p>
+        </div>
+
+        <label for="persona">Assistant persona (system prompt)</label>
+        <textarea id="persona" rows="4"></textarea>
+
+        <label for="selflearn-toggle" class="row-label">
+          <input id="selflearn-toggle" type="checkbox" checked />
+          Self-learning (remember facts about you across chats)
+        </label>
+
+        <label for="memory-edit">🧠 Memory — what PocketClaw has learned (one per line)</label>
+        <textarea id="memory-edit" rows="4" placeholder="Nothing learned yet."></textarea>
+        <button id="memory-clear" class="pill-btn">Forget everything</button>
+
+        <div class="modal-actions">
+          <button id="settings-save" class="primary-btn">Save</button>
+          <button id="settings-close" class="pill-btn">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
