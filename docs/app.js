@@ -40,6 +40,12 @@ const state = {
     maxTokens: 8192,
     gatewayUrl: "",       // empty = same origin as the app
     gatewayToken: "",
+    // CLI-mode MCP superpowers, forwarded to the gateway (in memory only)
+    cliTandem: false,
+    cliTandemUrl: "",
+    cliTandemToken: "",
+    cliFirecrawl: false,
+    cliFirecrawlKey: "",
   },
   convos: [],          // [{id, title, messages:[{role, content, images?}], updated}]
   currentId: null,
@@ -730,6 +736,21 @@ function gwHeaders() {
   return headers;
 }
 
+// Tandem/Firecrawl config to forward to the gateway. Each key: an object turns
+// it ON with that config, null turns it OFF, so the gateway always reflects the
+// app's current choice.
+function gwMcpConfig() {
+  const s = state.settings;
+  return {
+    tandem: s.cliTandem && s.cliTandemUrl
+      ? { url: s.cliTandemUrl, token: s.cliTandemToken || undefined }
+      : null,
+    firecrawl: s.cliFirecrawl
+      ? { key: s.cliFirecrawlKey || undefined }
+      : null,
+  };
+}
+
 async function streamChatCli(convo, userText, images, onThinking, onText, onTool, signal) {
   const res = await fetch(gatewayBase() + "/api/chat", {
     method: "POST",
@@ -740,6 +761,7 @@ async function streamChatCli(convo, userText, images, onThinking, onText, onTool
       persona: composeSystemPrompt(),
       // cloud gateways without their own Claude login use this key instead
       anthropicKey: state.settings.apiKey || undefined,
+      mcp: gwMcpConfig(),
       images: images && images.length ? images : undefined,
     }),
     signal,
@@ -1149,6 +1171,9 @@ async function pushLoopsToGateway() {
         loops: state.loops.map((l) => ({
           id: l.id, name: l.name, prompt: l.prompt, every: l.every, enabled: l.enabled,
         })),
+        // so background loops get the same browser/web tools
+        mcp: gwMcpConfig(),
+        anthropicKey: state.settings.apiKey || undefined,
       }),
     });
   } catch (_) {}
@@ -1538,6 +1563,11 @@ function openSettings() {
   $("max-tokens").value = s.maxTokens;
   $("gateway-url").value = s.gatewayUrl;
   $("gateway-token").value = s.gatewayToken;
+  $("cli-tandem-toggle").checked = !!s.cliTandem;
+  $("cli-tandem-url").value = s.cliTandemUrl;
+  $("cli-tandem-token").value = s.cliTandemToken;
+  $("cli-firecrawl-toggle").checked = !!s.cliFirecrawl;
+  $("cli-firecrawl-key").value = s.cliFirecrawlKey;
   $("selflearn-toggle").checked = s.selfLearn !== false;
   $("memory-edit").value = state.memory.join("\n");
   populateModelSelect(FALLBACK_MODELS);
@@ -1600,6 +1630,11 @@ function saveSettingsFromForm() {
   s.maxTokens = Number($("max-tokens").value) || 8192;
   s.gatewayUrl = $("gateway-url").value.trim();
   s.gatewayToken = $("gateway-token").value.trim();
+  s.cliTandem = $("cli-tandem-toggle").checked;
+  s.cliTandemUrl = $("cli-tandem-url").value.trim();
+  s.cliTandemToken = $("cli-tandem-token").value.trim();
+  s.cliFirecrawl = $("cli-firecrawl-toggle").checked;
+  s.cliFirecrawlKey = $("cli-firecrawl-key").value.trim();
   s.selfLearn = $("selflearn-toggle").checked;
   state.memory = $("memory-edit").value
     .split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 25);

@@ -214,6 +214,26 @@
           <p class="hint">Run <code>node server/server.js</code> on your computer and open its
             address on your phone. The agent runs there with Claude Code — tools, files and all.
             Leave URL empty when you opened the app from the gateway itself.</p>
+
+          <label for="cli-tandem-toggle" class="row-label">
+            <input id="cli-tandem-toggle" type="checkbox" />
+            🌐 Tandem Browser — let the agent drive a real browser
+          </label>
+          <label for="cli-tandem-url">Tandem MCP URL</label>
+          <input id="cli-tandem-url" type="text" placeholder="http://localhost:5173/mcp" autocomplete="off" />
+          <label for="cli-tandem-token">Tandem token (optional)</label>
+          <input id="cli-tandem-token" type="password" autocomplete="off" />
+          <p class="hint">Open <a href="https://tandembrowser.org" target="_blank" rel="noopener">Tandem</a>
+            on the gateway machine, copy its MCP URL here, and the agent browses through it.</p>
+
+          <label for="cli-firecrawl-toggle" class="row-label">
+            <input id="cli-firecrawl-toggle" type="checkbox" />
+            🔥 Firecrawl — web search / scrape / interact tools
+          </label>
+          <label for="cli-firecrawl-key">Firecrawl API key (optional — keyless is rate-limited)</label>
+          <input id="cli-firecrawl-key" type="password" placeholder="fc-…" autocomplete="off" />
+          <p class="hint">These are forwarded to the gateway in memory only, and also power your
+            scheduled loops. Leave a field set on the server via env vars to make it the default.</p>
         </div>
 
         <label for="persona">Assistant persona (system prompt)</label>

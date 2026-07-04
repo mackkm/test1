@@ -54,29 +54,52 @@ const DOCS_DIR = path.join(__dirname, "..", "docs");
 
 /* MCP superpowers for the agent:
  *  - Tandem Browser (tandembrowser.org) — a real browser it can drive
- *  - Firecrawl (firecrawl.dev) — web search / scrape / interact tools */
-function mcpConfig() {
+ *  - Firecrawl (firecrawl.dev) — web search / scrape / interact tools
+ *
+ * Config comes from two places, merged (client wins): server env vars set at
+ * launch, and per-request overrides forwarded by the app so the user can toggle
+ * these on from their phone. clientMcp is held in memory only, never on disk,
+ * and reused for background loop runs. */
+let clientMcp = { tandem: null, firecrawl: null };
+
+function activeMcpServers() {
   const servers = {};
-  if (TANDEM_MCP) {
-    if (/^https?:\/\//.test(TANDEM_MCP)) {
-      servers.tandem = { type: "http", url: TANDEM_MCP };
-      if (TANDEM_MCP_TOKEN) {
-        servers.tandem.headers = { Authorization: "Bearer " + TANDEM_MCP_TOKEN };
-      }
-    } else {
-      servers.tandem = { command: "node", args: [TANDEM_MCP] };
+
+  // Tandem: client override first, then env.
+  const tandemUrl = (clientMcp.tandem && clientMcp.tandem.url) || TANDEM_MCP;
+  const tandemToken =
+    (clientMcp.tandem && clientMcp.tandem.token) || TANDEM_MCP_TOKEN;
+  if (clientMcp.tandem !== null ? clientMcp.tandem : TANDEM_MCP) {
+    if (tandemUrl && /^https?:\/\//.test(tandemUrl)) {
+      servers.tandem = { type: "http", url: tandemUrl };
+      if (tandemToken) servers.tandem.headers = { Authorization: "Bearer " + tandemToken };
+    } else if (tandemUrl) {
+      servers.tandem = { command: "node", args: [tandemUrl] };
     }
   }
-  if (FIRECRAWL_MCP) {
-    servers.firecrawl = { type: "http", url: FIRECRAWL_MCP };
-    if (FIRECRAWL_API_KEY) {
-      servers.firecrawl.headers = { Authorization: "Bearer " + FIRECRAWL_API_KEY };
-    }
+
+  // Firecrawl: client override first, then env.
+  const fcKey = (clientMcp.firecrawl && clientMcp.firecrawl.key) || FIRECRAWL_API_KEY;
+  const fcUrl =
+    (clientMcp.firecrawl && clientMcp.firecrawl.url) ||
+    FIRECRAWL_MCP ||
+    (fcKey ? "https://mcp.firecrawl.dev/v2/mcp" : "");
+  const fcOn = clientMcp.firecrawl !== null ? !!clientMcp.firecrawl : !!FIRECRAWL_MCP;
+  if (fcOn && fcUrl) {
+    servers.firecrawl = { type: "http", url: fcUrl };
+    if (fcKey) servers.firecrawl.headers = { Authorization: "Bearer " + fcKey };
   }
+
+  return servers;
+}
+
+function mcpConfig() {
+  const servers = activeMcpServers();
   if (!Object.keys(servers).length) return null;
   return {
     json: JSON.stringify({ mcpServers: servers }),
     allowed: Object.keys(servers).map((n) => "mcp__" + n).join(","),
+    names: Object.keys(servers),
   };
 }
 
@@ -111,18 +134,19 @@ const SUBAGENTS = JSON.stringify({
 
 /* Standing instructions appended to every run (chat and loops). */
 function serverDirectives() {
+  const active = activeMcpServers();
   let d =
     "\n\n# Delegation\nYou have subagents (researcher, builder, critic) available via " +
     "the Task tool. Delegate independent or parallelizable subtasks to them and run " +
     "them concurrently when possible; keep working while they run. Do the work " +
     "directly only when it's a quick single-step task.";
-  if (TANDEM_MCP) {
+  if (active.tandem) {
     d +=
       "\n\n# Browser\nYour default browser is Tandem (the mcp__tandem__* tools). For " +
       "ANY web browsing, page interaction, form filling, or screenshots, use Tandem — " +
       "never launch Chrome, Chromium, or Playwright yourself.";
   }
-  if (FIRECRAWL_MCP) {
+  if (active.firecrawl) {
     d +=
       "\n\n# Web data\nUse the Firecrawl tools (mcp__firecrawl__*) for web search, " +
       "scraping, and structured extraction when full browser interaction isn't needed.";
@@ -195,6 +219,12 @@ async function handleChat(req, res) {
     return res.end(JSON.stringify({ error: "prompt required" }));
   }
   if (body.anthropicKey) clientAnthropicKey = String(body.anthropicKey);
+  if (body.mcp && typeof body.mcp === "object") {
+    // App-forwarded Tandem/Firecrawl config (in-memory only). null = "off",
+    // an object = "on with this config"; undefined leaves the current value.
+    if ("tandem" in body.mcp) clientMcp.tandem = body.mcp.tandem || null;
+    if ("firecrawl" in body.mcp) clientMcp.firecrawl = body.mcp.firecrawl || null;
+  }
 
   // Photos from the phone: save inside the workspace so the agent can Read
   // them without a permission prompt (headless mode can't answer prompts).
@@ -447,6 +477,12 @@ async function handleLoops(req, res, url) {
       res.writeHead(400, { "content-type": "application/json" });
       return res.end(JSON.stringify({ error: "invalid JSON body" }));
     }
+    // Carry over the app's tool config + key so background loops match chat.
+    if (body.anthropicKey) clientAnthropicKey = String(body.anthropicKey);
+    if (body.mcp && typeof body.mcp === "object") {
+      if ("tandem" in body.mcp) clientMcp.tandem = body.mcp.tandem || null;
+      if ("firecrawl" in body.mcp) clientMcp.firecrawl = body.mcp.firecrawl || null;
+    }
     const incoming = Array.isArray(body.loops) ? body.loops : [];
     // merge: definitions come from the client; runtime state stays server-side
     loops = incoming.map((inc) => {
@@ -507,12 +543,17 @@ const server = http.createServer((req, res) => {
   }
 
   if (url.pathname === "/api/health") {
+    const active = activeMcpServers();
     res.writeHead(200, { "content-type": "application/json" });
     return res.end(JSON.stringify({
       ok: true,
       backend: "claude-cli",
-      tandem: !!TANDEM_MCP,
-      firecrawl: !!FIRECRAWL_MCP,
+      // whether each is configurable via server env (informational)
+      tandemEnv: !!TANDEM_MCP,
+      firecrawlEnv: !!FIRECRAWL_MCP,
+      // whether each is currently active (env or app-forwarded)
+      tandem: !!active.tandem,
+      firecrawl: !!active.firecrawl,
     }));
   }
 
