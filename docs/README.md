@@ -60,7 +60,7 @@ Configuration (environment variables):
 | Variable | Meaning | Default |
 |---|---|---|
 | `PORT` / `HOST` | Where to listen | `3333` / `0.0.0.0` |
-| `POCKETCLAW_TOKEN` | Shared secret — **set this** if the gateway is reachable beyond your LAN | *(open)* |
+| `POCKETCLAW_TOKEN` | Shared secret clients must present. **Required** to expose the gateway beyond loopback — without it the server refuses a non-loopback bind (override with `POCKETCLAW_ALLOW_OPEN=1`) | *(none — loopback only)* |
 | `POCKETCLAW_WORKSPACE` | Directory the agent works in | current dir |
 | `CLAUDE_BIN` | Path to the `claude` binary | `claude` |
 | `CLAUDE_ARGS` | Extra CLI args, e.g. `--permission-mode acceptEdits` or `--allowedTools Read,Grep,WebSearch` | *(none)* |

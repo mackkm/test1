@@ -51,6 +51,16 @@ const FIRECRAWL_MCP =
   process.env.FIRECRAWL_MCP ||
   (FIRECRAWL_API_KEY ? "https://mcp.firecrawl.dev/v2/mcp" : "");
 const DOCS_DIR = path.join(__dirname, "..", "docs");
+// Watchdogs: kill a claude child that stalls, so hung runs can't pile up and
+// exhaust a small VM (or silently disable a loop forever).
+const CHAT_IDLE_MS = Number(process.env.POCKETCLAW_CHAT_TIMEOUT_MS || 180000);
+const LOOP_MAX_MS = Number(process.env.POCKETCLAW_LOOP_TIMEOUT_MS || 600000);
+// Refusing to run wide-open: when no token is set we only allow a loopback
+// bind unless the operator explicitly opts into an open gateway.
+const ALLOW_OPEN = process.env.POCKETCLAW_ALLOW_OPEN === "1";
+function isLoopback(h) {
+  return h === "127.0.0.1" || h === "localhost" || h === "::1" || h === "::ffff:127.0.0.1";
+}
 
 /* MCP superpowers for the agent:
  *  - Tandem Browser (tandembrowser.org) — a real browser it can drive
@@ -196,12 +206,14 @@ function readBody(req) {
 
 /* Cloud gateways: the app forwards the user's Anthropic API key with each
  * request so the VM never needs a baked-in Claude login. Held in memory only
- * (never written to disk); reused for background loop runs. */
-let clientAnthropicKey = "";
+ * (never written to disk). Chat spawns use the key from THEIR request (never a
+ * key another client posted); loops inherit the most recently seen key so they
+ * keep working while the phone is away. */
+let loopKey = "";
 
-function childEnv() {
-  return clientAnthropicKey
-    ? { ...process.env, ANTHROPIC_API_KEY: clientAnthropicKey }
+function childEnv(key) {
+  return key
+    ? { ...process.env, ANTHROPIC_API_KEY: key }
     : process.env;
 }
 
@@ -218,7 +230,11 @@ async function handleChat(req, res) {
     res.writeHead(400, { "content-type": "application/json" });
     return res.end(JSON.stringify({ error: "prompt required" }));
   }
-  if (body.anthropicKey) clientAnthropicKey = String(body.anthropicKey);
+  // This request's own key — used only for this spawn, never cached globally so
+  // one client can't bill/authorize another client's chat. Loops still inherit
+  // the latest key so background runs keep working.
+  const reqKey = body.anthropicKey ? String(body.anthropicKey) : "";
+  if (reqKey) loopKey = reqKey;
   if (body.mcp && typeof body.mcp === "object") {
     // App-forwarded Tandem/Firecrawl config (in-memory only). null = "off",
     // an object = "on with this config"; undefined leaves the current value.
@@ -268,7 +284,7 @@ async function handleChat(req, res) {
   console.log(`[chat] ${CLAUDE_BIN} ${args.join(" ")} (prompt: ${prompt.slice(0, 60)}…)`);
   const child = spawn(CLAUDE_BIN, args, {
     cwd: WORKSPACE,
-    env: childEnv(),
+    env: childEnv(reqKey),
     stdio: ["pipe", "pipe", "pipe"],
   });
   child.stdin.write(prompt);
@@ -278,10 +294,31 @@ async function handleChat(req, res) {
   let sawDelta = false;
   let sentDone = false;
   let buf = "";
+  let timedOut = false;
+
+  // Watchdog: if claude produces no output for CHAT_IDLE_MS (stuck MCP
+  // handshake, waiting on stdin, network stall), kill it instead of leaking a
+  // process + SSE connection forever. Reset on every stdout chunk.
+  let idleTimer = null;
+  function stopWatchdog() {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = null;
+  }
+  function armWatchdog() {
+    stopWatchdog();
+    idleTimer = setTimeout(() => {
+      timedOut = true;
+      if (!sentDone) send({ type: "error", message: `agent timed out (no output for ${Math.round(CHAT_IDLE_MS / 1000)}s)` });
+      try { child.kill("SIGTERM"); } catch (_) {}
+      setTimeout(() => { try { child.kill("SIGKILL"); } catch (_) {} }, 5000);
+    }, CHAT_IDLE_MS);
+  }
+  armWatchdog();
 
   child.stderr.on("data", (d) => (stderr += d));
 
   child.stdout.on("data", (chunk) => {
+    armWatchdog();
     buf += chunk;
     let nl;
     while ((nl = buf.indexOf("\n")) !== -1) {
@@ -342,7 +379,8 @@ async function handleChat(req, res) {
   }
 
   child.on("close", (code) => {
-    if (!sentDone) {
+    stopWatchdog();
+    if (!sentDone && !timedOut) {
       send({
         type: "error",
         message:
@@ -354,12 +392,14 @@ async function handleChat(req, res) {
   });
 
   child.on("error", (err) => {
+    stopWatchdog();
     send({ type: "error", message: "failed to start claude: " + err.message });
     res.end();
   });
 
   // phone hung up / user tapped stop → stop the agent
   req.on("close", () => {
+    stopWatchdog();
     if (child.exitCode === null) child.kill("SIGTERM");
   });
 }
@@ -386,8 +426,26 @@ function persistLoops() {
   }
 }
 
+function recordLoopRun(loop, text, isError) {
+  loop.runs = (loop.runs || []).slice(-19);
+  loop.runs.push({ at: Date.now(), text: String(text).slice(0, 20000), isError: !!isError });
+  persistLoops();
+}
+
 function runLoop(loop) {
   if (runningLoops.has(loop.id)) return;
+
+  // No key available → park the run instead of spawning a doomed child. After a
+  // restart the in-memory key is gone, so background loops would otherwise fail
+  // every tick until the user reopens the app; record it visibly and bail.
+  const key = loopKey || process.env.ANTHROPIC_API_KEY || "";
+  if (!key) {
+    loop.lastRunAt = Date.now(); // don't hammer every minute
+    recordLoopRun(loop, "loop parked — no Anthropic API key available on the gateway. Open the app (or set ANTHROPIC_API_KEY on the server) to resume.", true);
+    console.log(`[loop] "${loop.name}" parked (no API key)`);
+    return;
+  }
+
   runningLoops.add(loop.id);
   loop.lastRunAt = Date.now(); // set at start so a slow run can't double-fire
   persistLoops();
@@ -399,7 +457,7 @@ function runLoop(loop) {
 
   const child = spawn(CLAUDE_BIN, args, {
     cwd: WORKSPACE,
-    env: childEnv(),
+    env: childEnv(loopKey),
     stdio: ["pipe", "pipe", "pipe"],
   });
   child.stdin.write(loop.prompt);
@@ -408,6 +466,17 @@ function runLoop(loop) {
   let buf = "";
   let stderr = "";
   let gotResult = false;
+  let timedOut = false;
+
+  // Hard cap: a loop child that hangs would keep loop.id in runningLoops
+  // forever, so the scheduler would silently skip this loop for the life of the
+  // process. Kill it and clear the flag so the loop recovers next tick.
+  const killer = setTimeout(() => {
+    timedOut = true;
+    try { child.kill("SIGTERM"); } catch (_) {}
+    setTimeout(() => { try { child.kill("SIGKILL"); } catch (_) {} }, 5000);
+  }, LOOP_MAX_MS);
+
   child.stderr.on("data", (d) => (stderr += d));
   child.stdout.on("data", (chunk) => {
     buf += chunk;
@@ -425,32 +494,28 @@ function runLoop(loop) {
       if (ev.type === "result") {
         gotResult = true;
         loop.sessionId = ev.session_id || loop.sessionId;
-        loop.runs = (loop.runs || []).slice(-19);
-        loop.runs.push({
-          at: Date.now(),
-          text: String(ev.result ?? "").slice(0, 20000),
-          isError: !!ev.is_error,
-        });
-        persistLoops();
+        recordLoopRun(loop, ev.result ?? "", ev.is_error);
       }
     }
   });
   child.on("close", (code) => {
+    clearTimeout(killer);
     runningLoops.delete(loop.id);
     if (!gotResult) {
-      loop.runs = (loop.runs || []).slice(-19);
-      loop.runs.push({
-        at: Date.now(),
-        text: "loop run failed (exit " + code + ")" +
-          (stderr ? ": " + stderr.trim().slice(-300) : ""),
-        isError: true,
-      });
-      persistLoops();
+      recordLoopRun(
+        loop,
+        timedOut
+          ? "loop run timed out after " + Math.round(LOOP_MAX_MS / 60000) + " min and was stopped"
+          : "loop run failed (exit " + code + ")" + (stderr ? ": " + stderr.trim().slice(-300) : ""),
+        true
+      );
     }
     console.log(`[loop] "${loop.name}" finished`);
   });
   child.on("error", (err) => {
+    clearTimeout(killer);
     runningLoops.delete(loop.id);
+    recordLoopRun(loop, "loop spawn error: " + err.message, true);
     console.error(`[loop] "${loop.name}" spawn error:`, err.message);
   });
 }
@@ -478,7 +543,7 @@ async function handleLoops(req, res, url) {
       return res.end(JSON.stringify({ error: "invalid JSON body" }));
     }
     // Carry over the app's tool config + key so background loops match chat.
-    if (body.anthropicKey) clientAnthropicKey = String(body.anthropicKey);
+    if (body.anthropicKey) loopKey = String(body.anthropicKey);
     if (body.mcp && typeof body.mcp === "object") {
       if ("tandem" in body.mcp) clientMcp.tandem = body.mcp.tandem || null;
       if ("firecrawl" in body.mcp) clientMcp.firecrawl = body.mcp.firecrawl || null;
@@ -512,7 +577,9 @@ function serveStatic(pathname, res) {
   let rel = decodeURIComponent(pathname);
   if (rel === "/" || rel === "") rel = "/index.html";
   const file = path.normalize(path.join(DOCS_DIR, rel));
-  if (!file.startsWith(DOCS_DIR)) {
+  // Contain to DOCS_DIR: compare with a trailing separator so a sibling dir
+  // whose name merely starts with "docs" (e.g. docs-secret) can't slip through.
+  if (file !== DOCS_DIR && !file.startsWith(DOCS_DIR + path.sep)) {
     res.writeHead(403);
     return res.end("forbidden");
   }
@@ -596,12 +663,33 @@ const server = http.createServer((req, res) => {
   serveStatic(url.pathname, res);
 });
 
+// Never boot an unauthenticated agent onto a public interface. With no token,
+// a non-loopback bind is refused unless the operator explicitly opts in.
+if (!TOKEN && !isLoopback(HOST) && !ALLOW_OPEN) {
+  console.error(
+    "\n✋ Refusing to start: no POCKETCLAW_TOKEN is set and HOST=" + HOST +
+    " is not loopback.\n" +
+    "   This gateway drives an agentic Claude Code process — leaving it open lets\n" +
+    "   anyone on the network run it. Fix one of:\n" +
+    "     • set POCKETCLAW_TOKEN=<a long random secret>  (recommended)\n" +
+    "     • set HOST=127.0.0.1 to bind to this machine only\n" +
+    "     • set POCKETCLAW_ALLOW_OPEN=1 to override (only behind your own auth/VPN)\n"
+  );
+  process.exit(1);
+}
+
 server.listen(PORT, HOST, () => {
   console.log(`🦞 PocketClaw gateway`);
   console.log(`   app + API:  http://localhost:${PORT}`);
   console.log(`   workspace:  ${WORKSPACE}`);
   console.log(`   claude:     ${CLAUDE_BIN}${EXTRA_ARGS.length ? " " + EXTRA_ARGS.join(" ") : ""}`);
-  console.log(TOKEN ? `   auth:       token required` : `   auth:       OPEN (set POCKETCLAW_TOKEN to protect it)`);
+  console.log(
+    TOKEN
+      ? `   auth:       token required`
+      : isLoopback(HOST)
+      ? `   auth:       OPEN — loopback only (set POCKETCLAW_TOKEN to expose it safely)`
+      : `   auth:       OPEN — override in effect (POCKETCLAW_ALLOW_OPEN=1) ⚠`
+  );
   console.log(`   tandem:     ${TANDEM_MCP ? TANDEM_MCP + " (browser control on)" : "off (set TANDEM_MCP to enable browser control)"}`);
   console.log(`   firecrawl:  ${FIRECRAWL_MCP ? "on" : "off (set FIRECRAWL_API_KEY to enable web tools)"}`);
   console.log(`   loops:      ${loops.length} configured`);

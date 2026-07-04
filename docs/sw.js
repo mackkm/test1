@@ -1,7 +1,7 @@
 /* PocketClaw service worker — caches the app shell so it opens instantly
  * and works offline (API calls always go to the network). */
 
-const CACHE = "pocketclaw-v4";
+const CACHE = "pocketclaw-v5";
 const SHELL = [
   "./",
   "./index.html",
@@ -34,15 +34,21 @@ self.addEventListener("fetch", (e) => {
   if (url.origin !== location.origin) return;
   if (e.request.method !== "GET") return;
   if (url.pathname.includes("/api/")) return;
+  // Stale-while-revalidate: serve the cached shell instantly for a fast open,
+  // but always kick off a network fetch that refreshes the cache. This way a
+  // new deploy reaches installed users on the *next* load even if sw.js (the
+  // CACHE version) wasn't bumped — no more permanently stale app code.
   e.respondWith(
-    caches.match(e.request).then(
-      (hit) =>
-        hit ||
-        fetch(e.request).then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(e.request, copy));
-          return res;
-        })
+    caches.open(CACHE).then((cache) =>
+      cache.match(e.request).then((hit) => {
+        const network = fetch(e.request)
+          .then((res) => {
+            if (res && res.ok) cache.put(e.request, res.clone());
+            return res;
+          })
+          .catch(() => hit);
+        return hit || network;
+      })
     )
   );
 });

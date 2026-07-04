@@ -216,21 +216,76 @@ function loadState() {
   state.currentId = localStorage.getItem("pc_current") || null;
 }
 
+// localStorage has a ~5MB budget and image messages (base64) fill it fast. A
+// raw setItem throws QuotaExceededError synchronously, which used to abort
+// send() mid-flight and freeze the app. safeSet swallows the error (optionally
+// retrying after the caller frees space) and reports whether it stuck.
+function isQuotaError(e) {
+  return (
+    e &&
+    (e.name === "QuotaExceededError" ||
+      e.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+      e.code === 22 ||
+      e.code === 1014)
+  );
+}
+function safeSet(key, value, onQuota) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (e) {
+    if (isQuotaError(e) && typeof onQuota === "function") {
+      try {
+        onQuota();
+        localStorage.setItem(key, value);
+        return true;
+      } catch (_) {}
+    }
+    console.warn("localStorage write failed for", key, e && e.message);
+    if (isQuotaError(e)) toast("Storage full — older history or images may not be saved.");
+    return false;
+  }
+}
+
 function saveSettings() {
-  localStorage.setItem("pc_settings", JSON.stringify(state.settings));
+  safeSet("pc_settings", JSON.stringify(state.settings));
 }
 function saveConvos() {
-  localStorage.setItem("pc_convos", JSON.stringify(state.convos));
-  if (state.currentId) localStorage.setItem("pc_current", state.currentId);
+  const ok = safeSet("pc_convos", JSON.stringify(state.convos), evictForSpace);
+  // If it still won't fit, keep the app usable rather than throwing.
+  if (ok && state.currentId) safeSet("pc_current", state.currentId);
+  return ok;
+}
+// Free space when convos won't fit: first strip stored images from older
+// conversations (they dominate the footprint), then drop the oldest chats.
+function evictForSpace() {
+  const cur = state.currentId;
+  const older = state.convos.filter((c) => c.id !== cur);
+  for (const c of older) {
+    for (const m of c.messages || []) {
+      if (m.images && m.images.length) m.images = [];
+    }
+  }
+  while (state.convos.length > 1) {
+    const idx = state.convos.findIndex((c) => c.id !== cur);
+    if (idx === -1) break;
+    state.convos.splice(idx, 1);
+    try {
+      localStorage.setItem("pc_convos", JSON.stringify(state.convos));
+      return; // fits now
+    } catch (_) {
+      /* keep dropping */
+    }
+  }
 }
 function saveLoops() {
-  localStorage.setItem("pc_loops", JSON.stringify(state.loops));
+  safeSet("pc_loops", JSON.stringify(state.loops));
 }
 function saveSkills() {
-  localStorage.setItem("pc_skills", JSON.stringify(state.skills));
+  safeSet("pc_skills", JSON.stringify(state.skills));
 }
 function saveMemory() {
-  localStorage.setItem("pc_memory", JSON.stringify(state.memory));
+  safeSet("pc_memory", JSON.stringify(state.memory));
 }
 
 function currentConvo() {
@@ -409,7 +464,7 @@ function renderMessages() {
     const bubble = appendBubble(m.role, m.content, m.thinking, m.images);
     if (m.role === "assistant" && m.content) addCopyAction(bubble, m.content);
   }
-  scrollToBottom();
+  scrollToBottom(true);
 }
 
 function renderSuggestions() {
@@ -505,11 +560,31 @@ function appendError(text) {
   div.className = "error-note";
   div.textContent = text;
   messagesEl.appendChild(div);
-  scrollToBottom();
+  scrollToBottom(true);
 }
 
-function scrollToBottom() {
-  chatEl.scrollTop = chatEl.scrollHeight;
+// Transient toast for non-fatal notices (e.g. storage full). Self-dismisses.
+let toastTimer = null;
+function toast(text) {
+  let el = document.getElementById("toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "toast";
+    document.body.appendChild(el);
+  }
+  el.textContent = text;
+  el.classList.add("show");
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 3500);
+}
+
+// Only auto-scroll when the user is already near the bottom, so scrolling up to
+// re-read earlier messages while a reply streams doesn't yank them back down.
+function isNearBottom() {
+  return chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < 80;
+}
+function scrollToBottom(force) {
+  if (force || isNearBottom()) chatEl.scrollTop = chatEl.scrollHeight;
 }
 
 function renderConvoList() {
@@ -839,7 +914,7 @@ async function send() {
   welcomeEl.classList.add("hidden");
   $("convo-title").textContent = convo.title;
   appendBubble("user", text, null, images);
-  scrollToBottom();
+  scrollToBottom(true);
 
   // live assistant bubble
   const bubble = appendBubble("assistant", "");
@@ -1119,6 +1194,7 @@ function openLoopEditor(loopId) {
     tpls.appendChild(chip);
   }
   $("loop-backdrop").classList.remove("hidden");
+  enterOverlay($("loop-modal"));
 }
 
 function closeLoopEditor() {
@@ -1298,8 +1374,14 @@ function renderSkillList() {
   ul.innerHTML = "";
   for (const skill of state.skills) {
     const li = document.createElement("li");
-    const dot = document.createElement("span");
-    dot.className = "loop-dot" + (skill.enabled ? " on" : "");
+    // Real switch button: keyboard-focusable, screen-reader labelled, with a
+    // 44px touch target wrapping the 12px dot.
+    const dot = document.createElement("button");
+    dot.type = "button";
+    dot.className = "dot-btn loop-dot" + (skill.enabled ? " on" : "");
+    dot.setAttribute("role", "switch");
+    dot.setAttribute("aria-checked", skill.enabled ? "true" : "false");
+    dot.setAttribute("aria-label", (skill.enabled ? "Disable" : "Enable") + " skill " + skill.name);
     dot.title = skill.enabled ? "enabled" : "disabled";
     dot.onclick = (e) => {
       e.stopPropagation();
@@ -1347,6 +1429,7 @@ function openSkillEditor(skillId) {
   suggest.onclick = () => suggestSkills(suggest, addChip);
   tpls.appendChild(suggest);
   $("skill-backdrop").classList.remove("hidden");
+  enterOverlay($("skill-modal"));
 }
 
 async function suggestSkills(btn, addChip) {
@@ -1573,6 +1656,7 @@ function openSettings() {
   populateModelSelect(FALLBACK_MODELS);
   updateBackendFields();
   $("settings-backdrop").classList.remove("hidden");
+  enterOverlay($("settings"));
   if (s.apiKey && s.backend === "api") refreshModels(false);
 }
 
@@ -1658,11 +1742,84 @@ function openDrawer() {
   renderSkillList();
   $("drawer").classList.remove("hidden");
   $("drawer-backdrop").classList.remove("hidden");
+  enterOverlay($("drawer"));
 }
 function closeDrawer() {
   $("drawer").classList.add("hidden");
   $("drawer-backdrop").classList.add("hidden");
 }
+
+/* ---------- overlay accessibility: Escape, focus trap, focus restore ----------
+ * Modals and the drawer are plain divs toggled with .hidden. Give keyboard and
+ * screen-reader users a way out and keep focus inside the open dialog. */
+let overlayReturnFocus = null;
+
+function overlayFocusables(el) {
+  return [
+    ...el.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    ),
+  ].filter((n) => n.offsetParent !== null);
+}
+
+// Topmost open overlay element (modals sit above the drawer).
+function topOverlayEl() {
+  const modal = [
+    ...document.querySelectorAll(".modal-backdrop:not(.hidden) .modal"),
+  ].pop();
+  if (modal) return modal;
+  const drawer = $("drawer");
+  if (!drawer.classList.contains("hidden")) return drawer;
+  return null;
+}
+
+// Call right after an overlay becomes visible: remember what had focus and move
+// focus into the dialog.
+function enterOverlay(el) {
+  overlayReturnFocus = document.activeElement;
+  const f = overlayFocusables(el);
+  if (f.length) setTimeout(() => { try { f[0].focus(); } catch (_) {} }, 0);
+}
+
+function closeTopOverlay() {
+  if (!$("loop-backdrop").classList.contains("hidden")) closeLoopEditor();
+  else if (!$("skill-backdrop").classList.contains("hidden")) closeSkillEditor();
+  else if (!$("settings-backdrop").classList.contains("hidden")) closeSettings();
+  else if (!$("drawer").classList.contains("hidden")) closeDrawer();
+  else return;
+  if (overlayReturnFocus) {
+    try { overlayReturnFocus.focus(); } catch (_) {}
+    overlayReturnFocus = null;
+  }
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    if (topOverlayEl()) {
+      e.preventDefault();
+      closeTopOverlay();
+    }
+    return;
+  }
+  if (e.key === "Tab") {
+    const ov = topOverlayEl();
+    if (!ov) return;
+    const f = overlayFocusables(ov);
+    if (!f.length) return;
+    const first = f[0];
+    const last = f[f.length - 1];
+    if (!ov.contains(document.activeElement)) {
+      e.preventDefault();
+      first.focus();
+    } else if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+});
 
 /* ---------- composer ---------- */
 
@@ -1731,7 +1888,11 @@ function init() {
   sendBtn.onclick = send;
   inputEl.addEventListener("input", autoresize);
   inputEl.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey && !("ontouchstart" in window)) {
+    // The composer advertises a "send" return key (enterkeyhint="send"), so
+    // honor plain Enter on every device — including touch, where it previously
+    // fell through and just inserted a newline. Shift+Enter still adds a line;
+    // don't fire mid-IME-composition.
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       send();
     }
@@ -1847,6 +2008,22 @@ function init() {
 
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
+
+  // Keep the composer above the iOS keyboard: iOS overlays the software
+  // keyboard instead of shrinking the layout viewport, so track visualViewport
+  // and pin #app to its visible height.
+  const vv = window.visualViewport;
+  if (vv) {
+    const fit = () => {
+      const gap = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      document.documentElement.style.setProperty("--app-h", vv.height + "px");
+      // nudge into view so the input isn't flush against the keyboard
+      if (gap > 0 && document.activeElement === inputEl) scrollToBottom(true);
+    };
+    vv.addEventListener("resize", fit);
+    vv.addEventListener("scroll", fit);
+    fit();
   }
 }
 

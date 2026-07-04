@@ -86,7 +86,7 @@
 
     <!-- Loop editor modal -->
     <div id="loop-backdrop" class="modal-backdrop hidden">
-      <div id="loop-modal" class="modal">
+      <div id="loop-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="loop-modal-title">
         <h2 id="loop-modal-title">New loop</h2>
 
         <label>Start from an example</label>
@@ -125,7 +125,7 @@
 
     <!-- Skill editor modal -->
     <div id="skill-backdrop" class="modal-backdrop hidden">
-      <div id="skill-modal" class="modal">
+      <div id="skill-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="skill-modal-title">
         <h2 id="skill-modal-title">New skill</h2>
 
         <label>Start from an example</label>
@@ -153,8 +153,8 @@
 
     <!-- Settings modal -->
     <div id="settings-backdrop" class="modal-backdrop hidden">
-      <div id="settings" class="modal">
-        <h2>Settings</h2>
+      <div id="settings" class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <h2 id="settings-title">Settings</h2>
 
         <label for="backend-select">Backend</label>
         <select id="backend-select">
