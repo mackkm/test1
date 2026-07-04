@@ -62,6 +62,19 @@
     </main>
 
     <!-- Composer -->
+    <div id="quick-toggles">
+      <button id="toggle-overdrive" class="qtoggle overdrive" type="button" role="switch" aria-checked="false" title="Maximum intelligence: most capable model, max effort, all tools on">⚡ Overdrive</button>
+      <button id="toggle-thinking" class="qtoggle" type="button" role="switch" aria-checked="true">🧠 Thinking</button>
+      <button id="toggle-websearch" class="qtoggle" type="button" role="switch" aria-checked="true">🔍 Web search</button>
+      <button id="toggle-firecrawl" class="qtoggle hidden" type="button" role="switch" aria-checked="false">🔥 Firecrawl</button>
+      <div id="effort-bar" role="radiogroup" aria-label="Effort">
+        <button class="effort-seg" data-effort="low" type="button" role="radio" aria-checked="false">Low</button>
+        <button class="effort-seg" data-effort="medium" type="button" role="radio" aria-checked="false">Med</button>
+        <button class="effort-seg" data-effort="" type="button" role="radio" aria-checked="true">High</button>
+        <button class="effort-seg" data-effort="xhigh" type="button" role="radio" aria-checked="false">X-High</button>
+        <button class="effort-seg" data-effort="max" type="button" role="radio" aria-checked="false">🔥 Max</button>
+      </div>
+    </div>
     <div id="attach-strip" class="hidden"></div>
     <footer id="composer">
       <button id="attach-btn" class="icon-btn" aria-label="Attach photo">📷</button>

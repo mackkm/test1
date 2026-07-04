@@ -52,6 +52,18 @@ const state = {
   loopBusy: false,
   gatewayTandem: false,     // gateway has a Tandem Browser connected
   gatewayFirecrawl: false,  // gateway has Firecrawl tools enabled
+  overdrive: false,         // one-tap maximum-intelligence mode
+  preOverdrive: null,       // settings snapshot to restore when it's turned off
+};
+
+// The smartest configuration PocketClaw can run.
+const OVERDRIVE = {
+  model: "claude-fable-5",  // most capable model
+  effort: "max",
+  thinking: true,
+  webSearch: true,
+  firecrawl: true,
+  maxTokens: 32000,
 };
 
 // Prompt library — 4 random chips are shown on the welcome screen; "More ideas"
@@ -1459,6 +1471,52 @@ async function addImages(files) {
   renderAttachStrip();
 }
 
+/* ---------- quick toggles above the composer ---------- */
+
+function setOverdrive(on) {
+  const s = state.settings;
+  if (on && !state.overdrive) {
+    // snapshot the fields Overdrive overrides, then max them out
+    state.preOverdrive = {
+      model: s.model, effort: s.effort, thinking: s.thinking,
+      webSearch: s.webSearch, firecrawl: s.firecrawl, maxTokens: s.maxTokens,
+    };
+    Object.assign(s, OVERDRIVE);
+    state.overdrive = true;
+  } else if (!on && state.overdrive) {
+    if (state.preOverdrive) Object.assign(s, state.preOverdrive);
+    state.preOverdrive = null;
+    state.overdrive = false;
+  }
+  saveSettings();
+  syncQuickToggles();
+}
+
+function syncQuickToggles() {
+  const s = state.settings;
+  const cli = s.backend === "cli";
+  const od = $("toggle-overdrive");
+  if (od) od.setAttribute("aria-checked", state.overdrive ? "true" : "false");
+  $("quick-toggles").classList.toggle("overdriven", state.overdrive);
+  const setSwitch = (id, on) => {
+    const el = $(id);
+    if (el) el.setAttribute("aria-checked", on ? "true" : "false");
+  };
+  setSwitch("toggle-thinking", s.thinking);
+  setSwitch("toggle-websearch", s.webSearch);
+  setSwitch("toggle-firecrawl", s.firecrawl);
+  // Thinking + web search + Firecrawl are API-mode request options; the CLI
+  // backend controls these itself, so hide them there. Firecrawl chip only
+  // shows in API mode when the user has enabled it in settings.
+  $("toggle-thinking").classList.toggle("hidden", cli);
+  $("toggle-websearch").classList.toggle("hidden", cli);
+  $("toggle-firecrawl").classList.toggle("hidden", cli || !s.firecrawl);
+  // Effort applies to both backends' adaptive models.
+  document.querySelectorAll(".effort-seg").forEach((seg) => {
+    seg.setAttribute("aria-checked", seg.dataset.effort === (s.effort || "") ? "true" : "false");
+  });
+}
+
 /* ---------- settings UI ---------- */
 
 function updateBackendFields() {
@@ -1546,8 +1604,13 @@ function saveSettingsFromForm() {
   state.memory = $("memory-edit").value
     .split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 25);
   saveMemory();
+  // Editing settings by hand takes explicit control — exit Overdrive and keep
+  // the values just chosen (don't restore the old snapshot).
+  state.overdrive = false;
+  state.preOverdrive = null;
   saveSettings();
   pushLoopsToGateway();
+  syncQuickToggles();
   closeSettings();
   renderMessages();
 }
@@ -1649,6 +1712,39 @@ function init() {
     e.target.value = "";
   };
 
+  // quick toggles above the composer (mirror the settings, save instantly)
+  $("toggle-thinking").onclick = () => {
+    state.settings.thinking = !state.settings.thinking;
+    saveSettings();
+    syncQuickToggles();
+    buzz(8);
+  };
+  $("toggle-websearch").onclick = () => {
+    state.settings.webSearch = !state.settings.webSearch;
+    saveSettings();
+    syncQuickToggles();
+    buzz(8);
+  };
+  $("toggle-firecrawl").onclick = () => {
+    state.settings.firecrawl = !state.settings.firecrawl;
+    saveSettings();
+    syncQuickToggles();
+    buzz(8);
+  };
+  document.querySelectorAll(".effort-seg").forEach((seg) => {
+    seg.onclick = () => {
+      state.settings.effort = seg.dataset.effort;
+      saveSettings();
+      syncQuickToggles();
+      buzz(8);
+    };
+  });
+  $("toggle-overdrive").onclick = () => {
+    setOverdrive(!state.overdrive);
+    buzz(state.overdrive ? 25 : 8);
+  };
+  syncQuickToggles();
+
   // copy buttons inside rendered markdown (event delegation)
   messagesEl.addEventListener("click", (e) => {
     const btn = e.target.closest(".code-copy");
@@ -1703,6 +1799,7 @@ function init() {
         saveSettings();
         closeSettings();
       }
+      syncQuickToggles();
       renderMessages();
     })
     .catch(() => {});
