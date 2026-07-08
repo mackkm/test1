@@ -42,6 +42,10 @@ POCKETCLAW_TOKEN=$POCKETCLAW_TOKEN
 ENV
 chmod 600 /etc/pocketclaw.env
 
+# Default to sandbox mode (read/research tools only) on a VM reachable from the
+# internet. Override with: POCKETCLAW_SANDBOX=0 curl ... | sudo bash
+SANDBOX="${POCKETCLAW_SANDBOX:-1}"
+
 cat > /etc/systemd/system/pocketclaw.service <<UNIT
 [Unit]
 Description=PocketClaw gateway
@@ -51,6 +55,7 @@ Wants=network-online.target
 [Service]
 Environment=PORT=$PORT
 Environment=POCKETCLAW_WORKSPACE=/opt/pocketclaw-workspace
+Environment=POCKETCLAW_SANDBOX=$SANDBOX
 EnvironmentFile=/etc/pocketclaw.env
 ExecStart=$(command -v node) /opt/pocketclaw/server/server.js
 Restart=always
@@ -71,3 +76,7 @@ echo "   Gateway password:     $POCKETCLAW_TOKEN"
 echo "   (Make sure your VM's firewall allows TCP $PORT.)"
 echo "   In the app settings, also paste your Anthropic API key — the gateway"
 echo "   forwards it to Claude Code, no login needed on this machine."
+if [ "$SANDBOX" = "1" ]; then
+  echo "   Sandbox mode: ON (read/research tools only). Toggle it in the app,"
+  echo "   or rerun with POCKETCLAW_SANDBOX=0 to disable by default."
+fi

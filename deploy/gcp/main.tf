@@ -10,6 +10,11 @@
 # Then open the printed URL on your phone, add to home screen, and paste your
 # Anthropic API key + the token in the app's settings. The e2-micro machine is
 # inside GCP's Always Free tier in this region.
+#
+# Boots in sandbox mode by default (safest for a VM open to the internet): the
+# agent gets read/research tools only, no shell or file writes. Turn it off
+# with -var sandbox=false, or flip it per-request later in the app (⚙ →
+# Sandbox mode).
 
 terraform {
   required_providers {
@@ -48,6 +53,12 @@ variable "repo_url" {
 
 variable "machine_type" {
   default = "e2-micro" # always-free in us-central1/us-west1/us-east1
+}
+
+variable "sandbox" {
+  type        = bool
+  default     = true
+  description = "Run the agent restricted by default (isolated workspace, no shell/file writes — safest default for a VM reachable from the internet). Flip off with -var sandbox=false, or toggle per-request in the app (⚙ → Sandbox mode) once it's running."
 }
 
 provider "google" {
@@ -174,6 +185,7 @@ resource "google_compute_instance" "pocketclaw" {
     User=pocketclaw
     Environment=PORT=3333
     Environment=POCKETCLAW_WORKSPACE=/opt/pocketclaw-workspace
+    Environment=POCKETCLAW_SANDBOX=${var.sandbox ? "1" : "0"}
     EnvironmentFile=/etc/pocketclaw.env
     ExecStart=/usr/bin/node /opt/pocketclaw/server/server.js
     Restart=always
@@ -195,4 +207,8 @@ output "pocketclaw_url" {
 
 output "gateway_token_reminder" {
   value = "In the app: Settings → backend 'Claude Code CLI' → Gateway URL = the URL above, Gateway token = the pocketclaw_token you chose, and paste your Anthropic API key."
+}
+
+output "sandbox_note" {
+  value = var.sandbox ? "Sandbox mode is ON by default — the agent has read/research tools only. Turn it off in Settings (⚙ → Sandbox mode) or redeploy with -var sandbox=false." : "Sandbox mode is OFF — the agent has full tool access on this VM."
 }
