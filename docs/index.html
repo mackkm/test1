@@ -234,6 +234,14 @@
           <input id="cli-firecrawl-key" type="password" placeholder="fc-…" autocomplete="off" />
           <p class="hint">These are forwarded to the gateway in memory only, and also power your
             scheduled loops. Leave a field set on the server via env vars to make it the default.</p>
+
+          <label for="cli-sandbox-toggle" class="row-label">
+            <input id="cli-sandbox-toggle" type="checkbox" />
+            🧪 Sandbox mode — restrict the agent (no shell, no file changes)
+          </label>
+          <p class="hint">Runs the agent locked down: only safe read/research tools, in an
+            isolated workspace. Great for trying things or letting others use your gateway
+            without giving them the keys to your machine.</p>
         </div>
 
         <label for="persona">Assistant persona (system prompt)</label>

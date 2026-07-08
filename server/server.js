@@ -14,6 +14,11 @@
  *   HOST                  bind address                    (default 0.0.0.0)
  *   POCKETCLAW_TOKEN      shared secret; if set, clients must send it
  *   POCKETCLAW_WORKSPACE  working directory for the agent (default: cwd)
+ *   POCKETCLAW_SANDBOX    "1" = run the agent restricted by default: isolated
+ *                         workspace, only read/research tools, no shell or file
+ *                         writes. The app can toggle this per request too.
+ *   POCKETCLAW_ALLOW_OPEN "1" = allow starting with no token on a public bind
+ *                         (otherwise the gateway refuses; loopback is always ok)
  *   CLAUDE_BIN            path to the claude binary       (default: "claude")
  *   CLAUDE_ARGS           extra args appended to every claude invocation,
  *                         e.g. "--permission-mode acceptEdits" or
@@ -71,6 +76,35 @@ function isLoopback(h) {
  * these on from their phone. clientMcp is held in memory only, never on disk,
  * and reused for background loop runs. */
 let clientMcp = { tandem: null, firecrawl: null };
+
+/* Sandbox mode: run the agent locked down — in an isolated workspace, with only
+ * safe read/research tools (no shell, no file writes, no destructive actions).
+ * Default comes from POCKETCLAW_SANDBOX; the app can override per request
+ * (client wins, same as the MCP toggles). */
+const SANDBOX_ENV = process.env.POCKETCLAW_SANDBOX === "1";
+const SANDBOX_DIR = path.join(WORKSPACE, ".pocketclaw", "sandbox");
+let clientSandbox = null; // null = follow env; true/false = app override
+function sandboxActive() {
+  return clientSandbox !== null ? clientSandbox : SANDBOX_ENV;
+}
+// The only tools the agent may use in sandbox mode. No Bash/Write/Edit/etc., so
+// it can read and research but can't modify the machine or run commands.
+const SANDBOX_TOOLS = ["Read", "Grep", "Glob", "WebSearch", "WebFetch", "TodoWrite"];
+// Strip broad-permission flags an operator may have set, so sandbox can't be
+// silently widened by CLAUDE_ARGS.
+function safeExtraArgs(args) {
+  const out = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--dangerously-skip-permissions" || a === "--bypassPermissions") continue;
+    if (a === "--permission-mode" || a === "--allowedTools" || a === "--disallowedTools") {
+      i++; // also skip its value
+      continue;
+    }
+    out.push(a);
+  }
+  return out;
+}
 
 function activeMcpServers() {
   const servers = {};
@@ -161,15 +195,35 @@ function serverDirectives() {
       "\n\n# Web data\nUse the Firecrawl tools (mcp__firecrawl__*) for web search, " +
       "scraping, and structured extraction when full browser interaction isn't needed.";
   }
+  if (sandboxActive()) {
+    d +=
+      "\n\n# Sandbox mode\nYou are running in a restricted sandbox: only read and " +
+      "research tools are available (no shell, no file writes, no destructive " +
+      "actions). Stay within your sandbox workspace and do not attempt to modify " +
+      "the system or read files outside it. If a task truly needs write/exec access, " +
+      "explain that sandbox mode must be turned off rather than trying to work around it.";
+  }
   return d;
 }
 
-function claudeArgs(extra) {
+function claudeArgs(extra, opts = {}) {
+  const sandbox = !!opts.sandbox;
   const args = ["-p", "--output-format", "stream-json", "--verbose", ...extra];
   args.push("--agents", SUBAGENTS);
   const mcp = mcpConfig();
-  if (mcp) args.push("--mcp-config", mcp.json, "--allowedTools", mcp.allowed);
-  args.push(...EXTRA_ARGS);
+  if (mcp) args.push("--mcp-config", mcp.json);
+  if (sandbox) {
+    // Whitelist only the safe tools (plus any MCP browser/web tools that are
+    // on), force the default permission mode, and drop broad-permission extras.
+    const tools = [...SANDBOX_TOOLS];
+    if (mcp) tools.push(...mcp.names.map((n) => "mcp__" + n));
+    args.push("--allowedTools", tools.join(","));
+    args.push("--permission-mode", "default");
+    args.push(...safeExtraArgs(EXTRA_ARGS));
+  } else {
+    if (mcp) args.push("--allowedTools", mcp.allowed);
+    args.push(...EXTRA_ARGS);
+  }
   return args;
 }
 
@@ -241,12 +295,18 @@ async function handleChat(req, res) {
     if ("tandem" in body.mcp) clientMcp.tandem = body.mcp.tandem || null;
     if ("firecrawl" in body.mcp) clientMcp.firecrawl = body.mcp.firecrawl || null;
   }
+  if (typeof body.sandbox === "boolean") clientSandbox = body.sandbox;
 
-  // Photos from the phone: save inside the workspace so the agent can Read
-  // them without a permission prompt (headless mode can't answer prompts).
+  // In sandbox mode the agent is confined to an isolated workspace dir.
+  const sandbox = sandboxActive();
+  const cwd = sandbox ? SANDBOX_DIR : WORKSPACE;
+  fs.mkdirSync(cwd, { recursive: true });
+
+  // Photos from the phone: save inside the active workspace so the agent can
+  // Read them without a permission prompt (headless mode can't answer prompts).
   const images = Array.isArray(body.images) ? body.images.slice(0, 3) : [];
   if (images.length) {
-    const dir = path.join(WORKSPACE, ".pocketclaw", "uploads");
+    const dir = path.join(cwd, ".pocketclaw", "uploads");
     fs.mkdirSync(dir, { recursive: true });
     const saved = [];
     for (let i = 0; i < images.length; i++) {
@@ -279,11 +339,11 @@ async function handleChat(req, res) {
     "--append-system-prompt",
     String(body.persona || "").slice(0, 8000) + serverDirectives()
   );
-  const args = claudeArgs(extra);
+  const args = claudeArgs(extra, { sandbox });
 
-  console.log(`[chat] ${CLAUDE_BIN} ${args.join(" ")} (prompt: ${prompt.slice(0, 60)}…)`);
+  console.log(`[chat]${sandbox ? " [sandbox]" : ""} ${CLAUDE_BIN} ${args.join(" ")} (prompt: ${prompt.slice(0, 60)}…)`);
   const child = spawn(CLAUDE_BIN, args, {
-    cwd: WORKSPACE,
+    cwd,
     env: childEnv(reqKey),
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -451,12 +511,15 @@ function runLoop(loop) {
   persistLoops();
   console.log(`[loop] running "${loop.name}"`);
 
+  const sandbox = sandboxActive();
+  const cwd = sandbox ? SANDBOX_DIR : WORKSPACE;
+  fs.mkdirSync(cwd, { recursive: true });
   const extra = loop.sessionId ? ["--resume", loop.sessionId] : [];
   extra.push("--append-system-prompt", serverDirectives());
-  const args = claudeArgs(extra);
+  const args = claudeArgs(extra, { sandbox });
 
   const child = spawn(CLAUDE_BIN, args, {
-    cwd: WORKSPACE,
+    cwd,
     env: childEnv(loopKey),
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -548,6 +611,7 @@ async function handleLoops(req, res, url) {
       if ("tandem" in body.mcp) clientMcp.tandem = body.mcp.tandem || null;
       if ("firecrawl" in body.mcp) clientMcp.firecrawl = body.mcp.firecrawl || null;
     }
+    if (typeof body.sandbox === "boolean") clientSandbox = body.sandbox;
     const incoming = Array.isArray(body.loops) ? body.loops : [];
     // merge: definitions come from the client; runtime state stays server-side
     loops = incoming.map((inc) => {
@@ -621,6 +685,8 @@ const server = http.createServer((req, res) => {
       // whether each is currently active (env or app-forwarded)
       tandem: !!active.tandem,
       firecrawl: !!active.firecrawl,
+      sandboxEnv: SANDBOX_ENV,
+      sandbox: sandboxActive(),
     }));
   }
 
@@ -692,6 +758,7 @@ server.listen(PORT, HOST, () => {
   );
   console.log(`   tandem:     ${TANDEM_MCP ? TANDEM_MCP + " (browser control on)" : "off (set TANDEM_MCP to enable browser control)"}`);
   console.log(`   firecrawl:  ${FIRECRAWL_MCP ? "on" : "off (set FIRECRAWL_API_KEY to enable web tools)"}`);
+  console.log(`   sandbox:    ${SANDBOX_ENV ? "ON — restricted tools, isolated workspace" : "off (set POCKETCLAW_SANDBOX=1, or toggle it in the app)"}`);
   console.log(`   loops:      ${loops.length} configured`);
   console.log(`\nOn your phone (same network), open http://<this-computer's-IP>:${PORT}`);
 });

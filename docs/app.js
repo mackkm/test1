@@ -46,6 +46,7 @@ const state = {
     cliTandemToken: "",
     cliFirecrawl: false,
     cliFirecrawlKey: "",
+    cliSandbox: false,    // run the gateway agent restricted (no shell/writes)
   },
   convos: [],          // [{id, title, messages:[{role, content, images?}], updated}]
   currentId: null,
@@ -837,6 +838,7 @@ async function streamChatCli(convo, userText, images, onThinking, onText, onTool
       // cloud gateways without their own Claude login use this key instead
       anthropicKey: state.settings.apiKey || undefined,
       mcp: gwMcpConfig(),
+      sandbox: !!state.settings.cliSandbox,
       images: images && images.length ? images : undefined,
     }),
     signal,
@@ -1249,6 +1251,7 @@ async function pushLoopsToGateway() {
         })),
         // so background loops get the same browser/web tools
         mcp: gwMcpConfig(),
+        sandbox: !!state.settings.cliSandbox,
         anthropicKey: state.settings.apiKey || undefined,
       }),
     });
@@ -1651,6 +1654,7 @@ function openSettings() {
   $("cli-tandem-token").value = s.cliTandemToken;
   $("cli-firecrawl-toggle").checked = !!s.cliFirecrawl;
   $("cli-firecrawl-key").value = s.cliFirecrawlKey;
+  $("cli-sandbox-toggle").checked = !!s.cliSandbox;
   $("selflearn-toggle").checked = s.selfLearn !== false;
   $("memory-edit").value = state.memory.join("\n");
   populateModelSelect(FALLBACK_MODELS);
@@ -1719,6 +1723,7 @@ function saveSettingsFromForm() {
   s.cliTandemToken = $("cli-tandem-token").value.trim();
   s.cliFirecrawl = $("cli-firecrawl-toggle").checked;
   s.cliFirecrawlKey = $("cli-firecrawl-key").value.trim();
+  s.cliSandbox = $("cli-sandbox-toggle").checked;
   s.selfLearn = $("selflearn-toggle").checked;
   state.memory = $("memory-edit").value
     .split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 25);
