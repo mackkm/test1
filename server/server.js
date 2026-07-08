@@ -14,6 +14,11 @@
  *   HOST                  bind address                    (default 0.0.0.0)
  *   POCKETCLAW_TOKEN      shared secret; if set, clients must send it
  *   POCKETCLAW_WORKSPACE  working directory for the agent (default: cwd)
+ *   POCKETCLAW_SANDBOX    "1" = run the agent restricted by default: isolated
+ *                         workspace, only read/research tools, no shell or file
+ *                         writes. The app can toggle this per request too.
+ *   POCKETCLAW_ALLOW_OPEN "1" = allow starting with no token on a public bind
+ *                         (otherwise the gateway refuses; loopback is always ok)
  *   CLAUDE_BIN            path to the claude binary       (default: "claude")
  *   CLAUDE_ARGS           extra args appended to every claude invocation,
  *                         e.g. "--permission-mode acceptEdits" or
@@ -51,32 +56,94 @@ const FIRECRAWL_MCP =
   process.env.FIRECRAWL_MCP ||
   (FIRECRAWL_API_KEY ? "https://mcp.firecrawl.dev/v2/mcp" : "");
 const DOCS_DIR = path.join(__dirname, "..", "docs");
+// Watchdogs: kill a claude child that stalls, so hung runs can't pile up and
+// exhaust a small VM (or silently disable a loop forever).
+const CHAT_IDLE_MS = Number(process.env.POCKETCLAW_CHAT_TIMEOUT_MS || 180000);
+const LOOP_MAX_MS = Number(process.env.POCKETCLAW_LOOP_TIMEOUT_MS || 600000);
+// Refusing to run wide-open: when no token is set we only allow a loopback
+// bind unless the operator explicitly opts into an open gateway.
+const ALLOW_OPEN = process.env.POCKETCLAW_ALLOW_OPEN === "1";
+function isLoopback(h) {
+  return h === "127.0.0.1" || h === "localhost" || h === "::1" || h === "::ffff:127.0.0.1";
+}
 
 /* MCP superpowers for the agent:
  *  - Tandem Browser (tandembrowser.org) — a real browser it can drive
- *  - Firecrawl (firecrawl.dev) — web search / scrape / interact tools */
-function mcpConfig() {
+ *  - Firecrawl (firecrawl.dev) — web search / scrape / interact tools
+ *
+ * Config comes from two places, merged (client wins): server env vars set at
+ * launch, and per-request overrides forwarded by the app so the user can toggle
+ * these on from their phone. clientMcp is held in memory only, never on disk,
+ * and reused for background loop runs. */
+let clientMcp = { tandem: null, firecrawl: null };
+
+/* Sandbox mode: run the agent locked down — in an isolated workspace, with only
+ * safe read/research tools (no shell, no file writes, no destructive actions).
+ * Default comes from POCKETCLAW_SANDBOX; the app can override per request
+ * (client wins, same as the MCP toggles). */
+const SANDBOX_ENV = process.env.POCKETCLAW_SANDBOX === "1";
+const SANDBOX_DIR = path.join(WORKSPACE, ".pocketclaw", "sandbox");
+let clientSandbox = null; // null = follow env; true/false = app override
+function sandboxActive() {
+  return clientSandbox !== null ? clientSandbox : SANDBOX_ENV;
+}
+// The only tools the agent may use in sandbox mode. No Bash/Write/Edit/etc., so
+// it can read and research but can't modify the machine or run commands.
+const SANDBOX_TOOLS = ["Read", "Grep", "Glob", "WebSearch", "WebFetch", "TodoWrite"];
+// Strip broad-permission flags an operator may have set, so sandbox can't be
+// silently widened by CLAUDE_ARGS.
+function safeExtraArgs(args) {
+  const out = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--dangerously-skip-permissions" || a === "--bypassPermissions") continue;
+    if (a === "--permission-mode" || a === "--allowedTools" || a === "--disallowedTools") {
+      i++; // also skip its value
+      continue;
+    }
+    out.push(a);
+  }
+  return out;
+}
+
+function activeMcpServers() {
   const servers = {};
-  if (TANDEM_MCP) {
-    if (/^https?:\/\//.test(TANDEM_MCP)) {
-      servers.tandem = { type: "http", url: TANDEM_MCP };
-      if (TANDEM_MCP_TOKEN) {
-        servers.tandem.headers = { Authorization: "Bearer " + TANDEM_MCP_TOKEN };
-      }
-    } else {
-      servers.tandem = { command: "node", args: [TANDEM_MCP] };
+
+  // Tandem: client override first, then env.
+  const tandemUrl = (clientMcp.tandem && clientMcp.tandem.url) || TANDEM_MCP;
+  const tandemToken =
+    (clientMcp.tandem && clientMcp.tandem.token) || TANDEM_MCP_TOKEN;
+  if (clientMcp.tandem !== null ? clientMcp.tandem : TANDEM_MCP) {
+    if (tandemUrl && /^https?:\/\//.test(tandemUrl)) {
+      servers.tandem = { type: "http", url: tandemUrl };
+      if (tandemToken) servers.tandem.headers = { Authorization: "Bearer " + tandemToken };
+    } else if (tandemUrl) {
+      servers.tandem = { command: "node", args: [tandemUrl] };
     }
   }
-  if (FIRECRAWL_MCP) {
-    servers.firecrawl = { type: "http", url: FIRECRAWL_MCP };
-    if (FIRECRAWL_API_KEY) {
-      servers.firecrawl.headers = { Authorization: "Bearer " + FIRECRAWL_API_KEY };
-    }
+
+  // Firecrawl: client override first, then env.
+  const fcKey = (clientMcp.firecrawl && clientMcp.firecrawl.key) || FIRECRAWL_API_KEY;
+  const fcUrl =
+    (clientMcp.firecrawl && clientMcp.firecrawl.url) ||
+    FIRECRAWL_MCP ||
+    (fcKey ? "https://mcp.firecrawl.dev/v2/mcp" : "");
+  const fcOn = clientMcp.firecrawl !== null ? !!clientMcp.firecrawl : !!FIRECRAWL_MCP;
+  if (fcOn && fcUrl) {
+    servers.firecrawl = { type: "http", url: fcUrl };
+    if (fcKey) servers.firecrawl.headers = { Authorization: "Bearer " + fcKey };
   }
+
+  return servers;
+}
+
+function mcpConfig() {
+  const servers = activeMcpServers();
   if (!Object.keys(servers).length) return null;
   return {
     json: JSON.stringify({ mcpServers: servers }),
     allowed: Object.keys(servers).map((n) => "mcp__" + n).join(","),
+    names: Object.keys(servers),
   };
 }
 
@@ -111,31 +178,52 @@ const SUBAGENTS = JSON.stringify({
 
 /* Standing instructions appended to every run (chat and loops). */
 function serverDirectives() {
+  const active = activeMcpServers();
   let d =
     "\n\n# Delegation\nYou have subagents (researcher, builder, critic) available via " +
     "the Task tool. Delegate independent or parallelizable subtasks to them and run " +
     "them concurrently when possible; keep working while they run. Do the work " +
     "directly only when it's a quick single-step task.";
-  if (TANDEM_MCP) {
+  if (active.tandem) {
     d +=
       "\n\n# Browser\nYour default browser is Tandem (the mcp__tandem__* tools). For " +
       "ANY web browsing, page interaction, form filling, or screenshots, use Tandem — " +
       "never launch Chrome, Chromium, or Playwright yourself.";
   }
-  if (FIRECRAWL_MCP) {
+  if (active.firecrawl) {
     d +=
       "\n\n# Web data\nUse the Firecrawl tools (mcp__firecrawl__*) for web search, " +
       "scraping, and structured extraction when full browser interaction isn't needed.";
   }
+  if (sandboxActive()) {
+    d +=
+      "\n\n# Sandbox mode\nYou are running in a restricted sandbox: only read and " +
+      "research tools are available (no shell, no file writes, no destructive " +
+      "actions). Stay within your sandbox workspace and do not attempt to modify " +
+      "the system or read files outside it. If a task truly needs write/exec access, " +
+      "explain that sandbox mode must be turned off rather than trying to work around it.";
+  }
   return d;
 }
 
-function claudeArgs(extra) {
+function claudeArgs(extra, opts = {}) {
+  const sandbox = !!opts.sandbox;
   const args = ["-p", "--output-format", "stream-json", "--verbose", ...extra];
   args.push("--agents", SUBAGENTS);
   const mcp = mcpConfig();
-  if (mcp) args.push("--mcp-config", mcp.json, "--allowedTools", mcp.allowed);
-  args.push(...EXTRA_ARGS);
+  if (mcp) args.push("--mcp-config", mcp.json);
+  if (sandbox) {
+    // Whitelist only the safe tools (plus any MCP browser/web tools that are
+    // on), force the default permission mode, and drop broad-permission extras.
+    const tools = [...SANDBOX_TOOLS];
+    if (mcp) tools.push(...mcp.names.map((n) => "mcp__" + n));
+    args.push("--allowedTools", tools.join(","));
+    args.push("--permission-mode", "default");
+    args.push(...safeExtraArgs(EXTRA_ARGS));
+  } else {
+    if (mcp) args.push("--allowedTools", mcp.allowed);
+    args.push(...EXTRA_ARGS);
+  }
   return args;
 }
 
@@ -172,12 +260,14 @@ function readBody(req) {
 
 /* Cloud gateways: the app forwards the user's Anthropic API key with each
  * request so the VM never needs a baked-in Claude login. Held in memory only
- * (never written to disk); reused for background loop runs. */
-let clientAnthropicKey = "";
+ * (never written to disk). Chat spawns use the key from THEIR request (never a
+ * key another client posted); loops inherit the most recently seen key so they
+ * keep working while the phone is away. */
+let loopKey = "";
 
-function childEnv() {
-  return clientAnthropicKey
-    ? { ...process.env, ANTHROPIC_API_KEY: clientAnthropicKey }
+function childEnv(key) {
+  return key
+    ? { ...process.env, ANTHROPIC_API_KEY: key }
     : process.env;
 }
 
@@ -194,13 +284,29 @@ async function handleChat(req, res) {
     res.writeHead(400, { "content-type": "application/json" });
     return res.end(JSON.stringify({ error: "prompt required" }));
   }
-  if (body.anthropicKey) clientAnthropicKey = String(body.anthropicKey);
+  // This request's own key — used only for this spawn, never cached globally so
+  // one client can't bill/authorize another client's chat. Loops still inherit
+  // the latest key so background runs keep working.
+  const reqKey = body.anthropicKey ? String(body.anthropicKey) : "";
+  if (reqKey) loopKey = reqKey;
+  if (body.mcp && typeof body.mcp === "object") {
+    // App-forwarded Tandem/Firecrawl config (in-memory only). null = "off",
+    // an object = "on with this config"; undefined leaves the current value.
+    if ("tandem" in body.mcp) clientMcp.tandem = body.mcp.tandem || null;
+    if ("firecrawl" in body.mcp) clientMcp.firecrawl = body.mcp.firecrawl || null;
+  }
+  if (typeof body.sandbox === "boolean") clientSandbox = body.sandbox;
 
-  // Photos from the phone: save inside the workspace so the agent can Read
-  // them without a permission prompt (headless mode can't answer prompts).
+  // In sandbox mode the agent is confined to an isolated workspace dir.
+  const sandbox = sandboxActive();
+  const cwd = sandbox ? SANDBOX_DIR : WORKSPACE;
+  fs.mkdirSync(cwd, { recursive: true });
+
+  // Photos from the phone: save inside the active workspace so the agent can
+  // Read them without a permission prompt (headless mode can't answer prompts).
   const images = Array.isArray(body.images) ? body.images.slice(0, 3) : [];
   if (images.length) {
-    const dir = path.join(WORKSPACE, ".pocketclaw", "uploads");
+    const dir = path.join(cwd, ".pocketclaw", "uploads");
     fs.mkdirSync(dir, { recursive: true });
     const saved = [];
     for (let i = 0; i < images.length; i++) {
@@ -233,12 +339,12 @@ async function handleChat(req, res) {
     "--append-system-prompt",
     String(body.persona || "").slice(0, 8000) + serverDirectives()
   );
-  const args = claudeArgs(extra);
+  const args = claudeArgs(extra, { sandbox });
 
-  console.log(`[chat] ${CLAUDE_BIN} ${args.join(" ")} (prompt: ${prompt.slice(0, 60)}…)`);
+  console.log(`[chat]${sandbox ? " [sandbox]" : ""} ${CLAUDE_BIN} ${args.join(" ")} (prompt: ${prompt.slice(0, 60)}…)`);
   const child = spawn(CLAUDE_BIN, args, {
-    cwd: WORKSPACE,
-    env: childEnv(),
+    cwd,
+    env: childEnv(reqKey),
     stdio: ["pipe", "pipe", "pipe"],
   });
   child.stdin.write(prompt);
@@ -248,10 +354,31 @@ async function handleChat(req, res) {
   let sawDelta = false;
   let sentDone = false;
   let buf = "";
+  let timedOut = false;
+
+  // Watchdog: if claude produces no output for CHAT_IDLE_MS (stuck MCP
+  // handshake, waiting on stdin, network stall), kill it instead of leaking a
+  // process + SSE connection forever. Reset on every stdout chunk.
+  let idleTimer = null;
+  function stopWatchdog() {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = null;
+  }
+  function armWatchdog() {
+    stopWatchdog();
+    idleTimer = setTimeout(() => {
+      timedOut = true;
+      if (!sentDone) send({ type: "error", message: `agent timed out (no output for ${Math.round(CHAT_IDLE_MS / 1000)}s)` });
+      try { child.kill("SIGTERM"); } catch (_) {}
+      setTimeout(() => { try { child.kill("SIGKILL"); } catch (_) {} }, 5000);
+    }, CHAT_IDLE_MS);
+  }
+  armWatchdog();
 
   child.stderr.on("data", (d) => (stderr += d));
 
   child.stdout.on("data", (chunk) => {
+    armWatchdog();
     buf += chunk;
     let nl;
     while ((nl = buf.indexOf("\n")) !== -1) {
@@ -312,7 +439,8 @@ async function handleChat(req, res) {
   }
 
   child.on("close", (code) => {
-    if (!sentDone) {
+    stopWatchdog();
+    if (!sentDone && !timedOut) {
       send({
         type: "error",
         message:
@@ -324,12 +452,14 @@ async function handleChat(req, res) {
   });
 
   child.on("error", (err) => {
+    stopWatchdog();
     send({ type: "error", message: "failed to start claude: " + err.message });
     res.end();
   });
 
   // phone hung up / user tapped stop → stop the agent
   req.on("close", () => {
+    stopWatchdog();
     if (child.exitCode === null) child.kill("SIGTERM");
   });
 }
@@ -356,20 +486,41 @@ function persistLoops() {
   }
 }
 
+function recordLoopRun(loop, text, isError) {
+  loop.runs = (loop.runs || []).slice(-19);
+  loop.runs.push({ at: Date.now(), text: String(text).slice(0, 20000), isError: !!isError });
+  persistLoops();
+}
+
 function runLoop(loop) {
   if (runningLoops.has(loop.id)) return;
+
+  // No key available → park the run instead of spawning a doomed child. After a
+  // restart the in-memory key is gone, so background loops would otherwise fail
+  // every tick until the user reopens the app; record it visibly and bail.
+  const key = loopKey || process.env.ANTHROPIC_API_KEY || "";
+  if (!key) {
+    loop.lastRunAt = Date.now(); // don't hammer every minute
+    recordLoopRun(loop, "loop parked — no Anthropic API key available on the gateway. Open the app (or set ANTHROPIC_API_KEY on the server) to resume.", true);
+    console.log(`[loop] "${loop.name}" parked (no API key)`);
+    return;
+  }
+
   runningLoops.add(loop.id);
   loop.lastRunAt = Date.now(); // set at start so a slow run can't double-fire
   persistLoops();
   console.log(`[loop] running "${loop.name}"`);
 
+  const sandbox = sandboxActive();
+  const cwd = sandbox ? SANDBOX_DIR : WORKSPACE;
+  fs.mkdirSync(cwd, { recursive: true });
   const extra = loop.sessionId ? ["--resume", loop.sessionId] : [];
   extra.push("--append-system-prompt", serverDirectives());
-  const args = claudeArgs(extra);
+  const args = claudeArgs(extra, { sandbox });
 
   const child = spawn(CLAUDE_BIN, args, {
-    cwd: WORKSPACE,
-    env: childEnv(),
+    cwd,
+    env: childEnv(loopKey),
     stdio: ["pipe", "pipe", "pipe"],
   });
   child.stdin.write(loop.prompt);
@@ -378,6 +529,17 @@ function runLoop(loop) {
   let buf = "";
   let stderr = "";
   let gotResult = false;
+  let timedOut = false;
+
+  // Hard cap: a loop child that hangs would keep loop.id in runningLoops
+  // forever, so the scheduler would silently skip this loop for the life of the
+  // process. Kill it and clear the flag so the loop recovers next tick.
+  const killer = setTimeout(() => {
+    timedOut = true;
+    try { child.kill("SIGTERM"); } catch (_) {}
+    setTimeout(() => { try { child.kill("SIGKILL"); } catch (_) {} }, 5000);
+  }, LOOP_MAX_MS);
+
   child.stderr.on("data", (d) => (stderr += d));
   child.stdout.on("data", (chunk) => {
     buf += chunk;
@@ -395,32 +557,28 @@ function runLoop(loop) {
       if (ev.type === "result") {
         gotResult = true;
         loop.sessionId = ev.session_id || loop.sessionId;
-        loop.runs = (loop.runs || []).slice(-19);
-        loop.runs.push({
-          at: Date.now(),
-          text: String(ev.result ?? "").slice(0, 20000),
-          isError: !!ev.is_error,
-        });
-        persistLoops();
+        recordLoopRun(loop, ev.result ?? "", ev.is_error);
       }
     }
   });
   child.on("close", (code) => {
+    clearTimeout(killer);
     runningLoops.delete(loop.id);
     if (!gotResult) {
-      loop.runs = (loop.runs || []).slice(-19);
-      loop.runs.push({
-        at: Date.now(),
-        text: "loop run failed (exit " + code + ")" +
-          (stderr ? ": " + stderr.trim().slice(-300) : ""),
-        isError: true,
-      });
-      persistLoops();
+      recordLoopRun(
+        loop,
+        timedOut
+          ? "loop run timed out after " + Math.round(LOOP_MAX_MS / 60000) + " min and was stopped"
+          : "loop run failed (exit " + code + ")" + (stderr ? ": " + stderr.trim().slice(-300) : ""),
+        true
+      );
     }
     console.log(`[loop] "${loop.name}" finished`);
   });
   child.on("error", (err) => {
+    clearTimeout(killer);
     runningLoops.delete(loop.id);
+    recordLoopRun(loop, "loop spawn error: " + err.message, true);
     console.error(`[loop] "${loop.name}" spawn error:`, err.message);
   });
 }
@@ -447,6 +605,13 @@ async function handleLoops(req, res, url) {
       res.writeHead(400, { "content-type": "application/json" });
       return res.end(JSON.stringify({ error: "invalid JSON body" }));
     }
+    // Carry over the app's tool config + key so background loops match chat.
+    if (body.anthropicKey) loopKey = String(body.anthropicKey);
+    if (body.mcp && typeof body.mcp === "object") {
+      if ("tandem" in body.mcp) clientMcp.tandem = body.mcp.tandem || null;
+      if ("firecrawl" in body.mcp) clientMcp.firecrawl = body.mcp.firecrawl || null;
+    }
+    if (typeof body.sandbox === "boolean") clientSandbox = body.sandbox;
     const incoming = Array.isArray(body.loops) ? body.loops : [];
     // merge: definitions come from the client; runtime state stays server-side
     loops = incoming.map((inc) => {
@@ -476,7 +641,9 @@ function serveStatic(pathname, res) {
   let rel = decodeURIComponent(pathname);
   if (rel === "/" || rel === "") rel = "/index.html";
   const file = path.normalize(path.join(DOCS_DIR, rel));
-  if (!file.startsWith(DOCS_DIR)) {
+  // Contain to DOCS_DIR: compare with a trailing separator so a sibling dir
+  // whose name merely starts with "docs" (e.g. docs-secret) can't slip through.
+  if (file !== DOCS_DIR && !file.startsWith(DOCS_DIR + path.sep)) {
     res.writeHead(403);
     return res.end("forbidden");
   }
@@ -507,12 +674,19 @@ const server = http.createServer((req, res) => {
   }
 
   if (url.pathname === "/api/health") {
+    const active = activeMcpServers();
     res.writeHead(200, { "content-type": "application/json" });
     return res.end(JSON.stringify({
       ok: true,
       backend: "claude-cli",
-      tandem: !!TANDEM_MCP,
-      firecrawl: !!FIRECRAWL_MCP,
+      // whether each is configurable via server env (informational)
+      tandemEnv: !!TANDEM_MCP,
+      firecrawlEnv: !!FIRECRAWL_MCP,
+      // whether each is currently active (env or app-forwarded)
+      tandem: !!active.tandem,
+      firecrawl: !!active.firecrawl,
+      sandboxEnv: SANDBOX_ENV,
+      sandbox: sandboxActive(),
     }));
   }
 
@@ -555,14 +729,36 @@ const server = http.createServer((req, res) => {
   serveStatic(url.pathname, res);
 });
 
+// Never boot an unauthenticated agent onto a public interface. With no token,
+// a non-loopback bind is refused unless the operator explicitly opts in.
+if (!TOKEN && !isLoopback(HOST) && !ALLOW_OPEN) {
+  console.error(
+    "\n✋ Refusing to start: no POCKETCLAW_TOKEN is set and HOST=" + HOST +
+    " is not loopback.\n" +
+    "   This gateway drives an agentic Claude Code process — leaving it open lets\n" +
+    "   anyone on the network run it. Fix one of:\n" +
+    "     • set POCKETCLAW_TOKEN=<a long random secret>  (recommended)\n" +
+    "     • set HOST=127.0.0.1 to bind to this machine only\n" +
+    "     • set POCKETCLAW_ALLOW_OPEN=1 to override (only behind your own auth/VPN)\n"
+  );
+  process.exit(1);
+}
+
 server.listen(PORT, HOST, () => {
   console.log(`🦞 PocketClaw gateway`);
   console.log(`   app + API:  http://localhost:${PORT}`);
   console.log(`   workspace:  ${WORKSPACE}`);
   console.log(`   claude:     ${CLAUDE_BIN}${EXTRA_ARGS.length ? " " + EXTRA_ARGS.join(" ") : ""}`);
-  console.log(TOKEN ? `   auth:       token required` : `   auth:       OPEN (set POCKETCLAW_TOKEN to protect it)`);
+  console.log(
+    TOKEN
+      ? `   auth:       token required`
+      : isLoopback(HOST)
+      ? `   auth:       OPEN — loopback only (set POCKETCLAW_TOKEN to expose it safely)`
+      : `   auth:       OPEN — override in effect (POCKETCLAW_ALLOW_OPEN=1) ⚠`
+  );
   console.log(`   tandem:     ${TANDEM_MCP ? TANDEM_MCP + " (browser control on)" : "off (set TANDEM_MCP to enable browser control)"}`);
   console.log(`   firecrawl:  ${FIRECRAWL_MCP ? "on" : "off (set FIRECRAWL_API_KEY to enable web tools)"}`);
+  console.log(`   sandbox:    ${SANDBOX_ENV ? "ON — restricted tools, isolated workspace" : "off (set POCKETCLAW_SANDBOX=1, or toggle it in the app)"}`);
   console.log(`   loops:      ${loops.length} configured`);
   console.log(`\nOn your phone (same network), open http://<this-computer's-IP>:${PORT}`);
 });

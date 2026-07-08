@@ -62,6 +62,19 @@
     </main>
 
     <!-- Composer -->
+    <div id="quick-toggles">
+      <button id="toggle-overdrive" class="qtoggle overdrive" type="button" role="switch" aria-checked="false" title="Maximum intelligence: most capable model, max effort, all tools on">⚡ Overdrive</button>
+      <button id="toggle-thinking" class="qtoggle" type="button" role="switch" aria-checked="true">🧠 Thinking</button>
+      <button id="toggle-websearch" class="qtoggle" type="button" role="switch" aria-checked="true">🔍 Web search</button>
+      <button id="toggle-firecrawl" class="qtoggle hidden" type="button" role="switch" aria-checked="false">🔥 Firecrawl</button>
+      <div id="effort-bar" role="radiogroup" aria-label="Effort">
+        <button class="effort-seg" data-effort="low" type="button" role="radio" aria-checked="false">Low</button>
+        <button class="effort-seg" data-effort="medium" type="button" role="radio" aria-checked="false">Med</button>
+        <button class="effort-seg" data-effort="" type="button" role="radio" aria-checked="true">High</button>
+        <button class="effort-seg" data-effort="xhigh" type="button" role="radio" aria-checked="false">X-High</button>
+        <button class="effort-seg" data-effort="max" type="button" role="radio" aria-checked="false">🔥 Max</button>
+      </div>
+    </div>
     <div id="attach-strip" class="hidden"></div>
     <footer id="composer">
       <button id="attach-btn" class="icon-btn" aria-label="Attach photo">📷</button>
@@ -73,7 +86,7 @@
 
     <!-- Loop editor modal -->
     <div id="loop-backdrop" class="modal-backdrop hidden">
-      <div id="loop-modal" class="modal">
+      <div id="loop-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="loop-modal-title">
         <h2 id="loop-modal-title">New loop</h2>
 
         <label>Start from an example</label>
@@ -112,7 +125,7 @@
 
     <!-- Skill editor modal -->
     <div id="skill-backdrop" class="modal-backdrop hidden">
-      <div id="skill-modal" class="modal">
+      <div id="skill-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="skill-modal-title">
         <h2 id="skill-modal-title">New skill</h2>
 
         <label>Start from an example</label>
@@ -140,8 +153,8 @@
 
     <!-- Settings modal -->
     <div id="settings-backdrop" class="modal-backdrop hidden">
-      <div id="settings" class="modal">
-        <h2>Settings</h2>
+      <div id="settings" class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <h2 id="settings-title">Settings</h2>
 
         <label for="backend-select">Backend</label>
         <select id="backend-select">
@@ -201,6 +214,34 @@
           <p class="hint">Run <code>node server/server.js</code> on your computer and open its
             address on your phone. The agent runs there with Claude Code — tools, files and all.
             Leave URL empty when you opened the app from the gateway itself.</p>
+
+          <label for="cli-tandem-toggle" class="row-label">
+            <input id="cli-tandem-toggle" type="checkbox" />
+            🌐 Tandem Browser — let the agent drive a real browser
+          </label>
+          <label for="cli-tandem-url">Tandem MCP URL</label>
+          <input id="cli-tandem-url" type="text" placeholder="http://localhost:5173/mcp" autocomplete="off" />
+          <label for="cli-tandem-token">Tandem token (optional)</label>
+          <input id="cli-tandem-token" type="password" autocomplete="off" />
+          <p class="hint">Open <a href="https://tandembrowser.org" target="_blank" rel="noopener">Tandem</a>
+            on the gateway machine, copy its MCP URL here, and the agent browses through it.</p>
+
+          <label for="cli-firecrawl-toggle" class="row-label">
+            <input id="cli-firecrawl-toggle" type="checkbox" />
+            🔥 Firecrawl — web search / scrape / interact tools
+          </label>
+          <label for="cli-firecrawl-key">Firecrawl API key (optional — keyless is rate-limited)</label>
+          <input id="cli-firecrawl-key" type="password" placeholder="fc-…" autocomplete="off" />
+          <p class="hint">These are forwarded to the gateway in memory only, and also power your
+            scheduled loops. Leave a field set on the server via env vars to make it the default.</p>
+
+          <label for="cli-sandbox-toggle" class="row-label">
+            <input id="cli-sandbox-toggle" type="checkbox" />
+            🧪 Sandbox mode — restrict the agent (no shell, no file changes)
+          </label>
+          <p class="hint">Runs the agent locked down: only safe read/research tools, in an
+            isolated workspace. Great for trying things or letting others use your gateway
+            without giving them the keys to your machine.</p>
         </div>
 
         <label for="persona">Assistant persona (system prompt)</label>

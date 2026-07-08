@@ -40,6 +40,13 @@ const state = {
     maxTokens: 8192,
     gatewayUrl: "",       // empty = same origin as the app
     gatewayToken: "",
+    // CLI-mode MCP superpowers, forwarded to the gateway (in memory only)
+    cliTandem: false,
+    cliTandemUrl: "",
+    cliTandemToken: "",
+    cliFirecrawl: false,
+    cliFirecrawlKey: "",
+    cliSandbox: false,    // run the gateway agent restricted (no shell/writes)
   },
   convos: [],          // [{id, title, messages:[{role, content, images?}], updated}]
   currentId: null,
@@ -52,6 +59,18 @@ const state = {
   loopBusy: false,
   gatewayTandem: false,     // gateway has a Tandem Browser connected
   gatewayFirecrawl: false,  // gateway has Firecrawl tools enabled
+  overdrive: false,         // one-tap maximum-intelligence mode
+  preOverdrive: null,       // settings snapshot to restore when it's turned off
+};
+
+// The smartest configuration PocketClaw can run.
+const OVERDRIVE = {
+  model: "claude-fable-5",  // most capable model
+  effort: "max",
+  thinking: true,
+  webSearch: true,
+  firecrawl: true,
+  maxTokens: 32000,
 };
 
 // Prompt library — 4 random chips are shown on the welcome screen; "More ideas"
@@ -198,21 +217,76 @@ function loadState() {
   state.currentId = localStorage.getItem("pc_current") || null;
 }
 
+// localStorage has a ~5MB budget and image messages (base64) fill it fast. A
+// raw setItem throws QuotaExceededError synchronously, which used to abort
+// send() mid-flight and freeze the app. safeSet swallows the error (optionally
+// retrying after the caller frees space) and reports whether it stuck.
+function isQuotaError(e) {
+  return (
+    e &&
+    (e.name === "QuotaExceededError" ||
+      e.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+      e.code === 22 ||
+      e.code === 1014)
+  );
+}
+function safeSet(key, value, onQuota) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (e) {
+    if (isQuotaError(e) && typeof onQuota === "function") {
+      try {
+        onQuota();
+        localStorage.setItem(key, value);
+        return true;
+      } catch (_) {}
+    }
+    console.warn("localStorage write failed for", key, e && e.message);
+    if (isQuotaError(e)) toast("Storage full — older history or images may not be saved.");
+    return false;
+  }
+}
+
 function saveSettings() {
-  localStorage.setItem("pc_settings", JSON.stringify(state.settings));
+  safeSet("pc_settings", JSON.stringify(state.settings));
 }
 function saveConvos() {
-  localStorage.setItem("pc_convos", JSON.stringify(state.convos));
-  if (state.currentId) localStorage.setItem("pc_current", state.currentId);
+  const ok = safeSet("pc_convos", JSON.stringify(state.convos), evictForSpace);
+  // If it still won't fit, keep the app usable rather than throwing.
+  if (ok && state.currentId) safeSet("pc_current", state.currentId);
+  return ok;
+}
+// Free space when convos won't fit: first strip stored images from older
+// conversations (they dominate the footprint), then drop the oldest chats.
+function evictForSpace() {
+  const cur = state.currentId;
+  const older = state.convos.filter((c) => c.id !== cur);
+  for (const c of older) {
+    for (const m of c.messages || []) {
+      if (m.images && m.images.length) m.images = [];
+    }
+  }
+  while (state.convos.length > 1) {
+    const idx = state.convos.findIndex((c) => c.id !== cur);
+    if (idx === -1) break;
+    state.convos.splice(idx, 1);
+    try {
+      localStorage.setItem("pc_convos", JSON.stringify(state.convos));
+      return; // fits now
+    } catch (_) {
+      /* keep dropping */
+    }
+  }
 }
 function saveLoops() {
-  localStorage.setItem("pc_loops", JSON.stringify(state.loops));
+  safeSet("pc_loops", JSON.stringify(state.loops));
 }
 function saveSkills() {
-  localStorage.setItem("pc_skills", JSON.stringify(state.skills));
+  safeSet("pc_skills", JSON.stringify(state.skills));
 }
 function saveMemory() {
-  localStorage.setItem("pc_memory", JSON.stringify(state.memory));
+  safeSet("pc_memory", JSON.stringify(state.memory));
 }
 
 function currentConvo() {
@@ -391,7 +465,7 @@ function renderMessages() {
     const bubble = appendBubble(m.role, m.content, m.thinking, m.images);
     if (m.role === "assistant" && m.content) addCopyAction(bubble, m.content);
   }
-  scrollToBottom();
+  scrollToBottom(true);
 }
 
 function renderSuggestions() {
@@ -487,11 +561,31 @@ function appendError(text) {
   div.className = "error-note";
   div.textContent = text;
   messagesEl.appendChild(div);
-  scrollToBottom();
+  scrollToBottom(true);
 }
 
-function scrollToBottom() {
-  chatEl.scrollTop = chatEl.scrollHeight;
+// Transient toast for non-fatal notices (e.g. storage full). Self-dismisses.
+let toastTimer = null;
+function toast(text) {
+  let el = document.getElementById("toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "toast";
+    document.body.appendChild(el);
+  }
+  el.textContent = text;
+  el.classList.add("show");
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 3500);
+}
+
+// Only auto-scroll when the user is already near the bottom, so scrolling up to
+// re-read earlier messages while a reply streams doesn't yank them back down.
+function isNearBottom() {
+  return chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < 80;
+}
+function scrollToBottom(force) {
+  if (force || isNearBottom()) chatEl.scrollTop = chatEl.scrollHeight;
 }
 
 function renderConvoList() {
@@ -718,6 +812,21 @@ function gwHeaders() {
   return headers;
 }
 
+// Tandem/Firecrawl config to forward to the gateway. Each key: an object turns
+// it ON with that config, null turns it OFF, so the gateway always reflects the
+// app's current choice.
+function gwMcpConfig() {
+  const s = state.settings;
+  return {
+    tandem: s.cliTandem && s.cliTandemUrl
+      ? { url: s.cliTandemUrl, token: s.cliTandemToken || undefined }
+      : null,
+    firecrawl: s.cliFirecrawl
+      ? { key: s.cliFirecrawlKey || undefined }
+      : null,
+  };
+}
+
 async function streamChatCli(convo, userText, images, onThinking, onText, onTool, signal) {
   const res = await fetch(gatewayBase() + "/api/chat", {
     method: "POST",
@@ -728,6 +837,8 @@ async function streamChatCli(convo, userText, images, onThinking, onText, onTool
       persona: composeSystemPrompt(),
       // cloud gateways without their own Claude login use this key instead
       anthropicKey: state.settings.apiKey || undefined,
+      mcp: gwMcpConfig(),
+      sandbox: !!state.settings.cliSandbox,
       images: images && images.length ? images : undefined,
     }),
     signal,
@@ -805,7 +916,7 @@ async function send() {
   welcomeEl.classList.add("hidden");
   $("convo-title").textContent = convo.title;
   appendBubble("user", text, null, images);
-  scrollToBottom();
+  scrollToBottom(true);
 
   // live assistant bubble
   const bubble = appendBubble("assistant", "");
@@ -1085,6 +1196,7 @@ function openLoopEditor(loopId) {
     tpls.appendChild(chip);
   }
   $("loop-backdrop").classList.remove("hidden");
+  enterOverlay($("loop-modal"));
 }
 
 function closeLoopEditor() {
@@ -1137,6 +1249,10 @@ async function pushLoopsToGateway() {
         loops: state.loops.map((l) => ({
           id: l.id, name: l.name, prompt: l.prompt, every: l.every, enabled: l.enabled,
         })),
+        // so background loops get the same browser/web tools
+        mcp: gwMcpConfig(),
+        sandbox: !!state.settings.cliSandbox,
+        anthropicKey: state.settings.apiKey || undefined,
       }),
     });
   } catch (_) {}
@@ -1261,8 +1377,14 @@ function renderSkillList() {
   ul.innerHTML = "";
   for (const skill of state.skills) {
     const li = document.createElement("li");
-    const dot = document.createElement("span");
-    dot.className = "loop-dot" + (skill.enabled ? " on" : "");
+    // Real switch button: keyboard-focusable, screen-reader labelled, with a
+    // 44px touch target wrapping the 12px dot.
+    const dot = document.createElement("button");
+    dot.type = "button";
+    dot.className = "dot-btn loop-dot" + (skill.enabled ? " on" : "");
+    dot.setAttribute("role", "switch");
+    dot.setAttribute("aria-checked", skill.enabled ? "true" : "false");
+    dot.setAttribute("aria-label", (skill.enabled ? "Disable" : "Enable") + " skill " + skill.name);
     dot.title = skill.enabled ? "enabled" : "disabled";
     dot.onclick = (e) => {
       e.stopPropagation();
@@ -1310,6 +1432,7 @@ function openSkillEditor(skillId) {
   suggest.onclick = () => suggestSkills(suggest, addChip);
   tpls.appendChild(suggest);
   $("skill-backdrop").classList.remove("hidden");
+  enterOverlay($("skill-modal"));
 }
 
 async function suggestSkills(btn, addChip) {
@@ -1459,6 +1582,52 @@ async function addImages(files) {
   renderAttachStrip();
 }
 
+/* ---------- quick toggles above the composer ---------- */
+
+function setOverdrive(on) {
+  const s = state.settings;
+  if (on && !state.overdrive) {
+    // snapshot the fields Overdrive overrides, then max them out
+    state.preOverdrive = {
+      model: s.model, effort: s.effort, thinking: s.thinking,
+      webSearch: s.webSearch, firecrawl: s.firecrawl, maxTokens: s.maxTokens,
+    };
+    Object.assign(s, OVERDRIVE);
+    state.overdrive = true;
+  } else if (!on && state.overdrive) {
+    if (state.preOverdrive) Object.assign(s, state.preOverdrive);
+    state.preOverdrive = null;
+    state.overdrive = false;
+  }
+  saveSettings();
+  syncQuickToggles();
+}
+
+function syncQuickToggles() {
+  const s = state.settings;
+  const cli = s.backend === "cli";
+  const od = $("toggle-overdrive");
+  if (od) od.setAttribute("aria-checked", state.overdrive ? "true" : "false");
+  $("quick-toggles").classList.toggle("overdriven", state.overdrive);
+  const setSwitch = (id, on) => {
+    const el = $(id);
+    if (el) el.setAttribute("aria-checked", on ? "true" : "false");
+  };
+  setSwitch("toggle-thinking", s.thinking);
+  setSwitch("toggle-websearch", s.webSearch);
+  setSwitch("toggle-firecrawl", s.firecrawl);
+  // Thinking + web search + Firecrawl are API-mode request options; the CLI
+  // backend controls these itself, so hide them there. Firecrawl chip only
+  // shows in API mode when the user has enabled it in settings.
+  $("toggle-thinking").classList.toggle("hidden", cli);
+  $("toggle-websearch").classList.toggle("hidden", cli);
+  $("toggle-firecrawl").classList.toggle("hidden", cli || !s.firecrawl);
+  // Effort applies to both backends' adaptive models.
+  document.querySelectorAll(".effort-seg").forEach((seg) => {
+    seg.setAttribute("aria-checked", seg.dataset.effort === (s.effort || "") ? "true" : "false");
+  });
+}
+
 /* ---------- settings UI ---------- */
 
 function updateBackendFields() {
@@ -1480,11 +1649,18 @@ function openSettings() {
   $("max-tokens").value = s.maxTokens;
   $("gateway-url").value = s.gatewayUrl;
   $("gateway-token").value = s.gatewayToken;
+  $("cli-tandem-toggle").checked = !!s.cliTandem;
+  $("cli-tandem-url").value = s.cliTandemUrl;
+  $("cli-tandem-token").value = s.cliTandemToken;
+  $("cli-firecrawl-toggle").checked = !!s.cliFirecrawl;
+  $("cli-firecrawl-key").value = s.cliFirecrawlKey;
+  $("cli-sandbox-toggle").checked = !!s.cliSandbox;
   $("selflearn-toggle").checked = s.selfLearn !== false;
   $("memory-edit").value = state.memory.join("\n");
   populateModelSelect(FALLBACK_MODELS);
   updateBackendFields();
   $("settings-backdrop").classList.remove("hidden");
+  enterOverlay($("settings"));
   if (s.apiKey && s.backend === "api") refreshModels(false);
 }
 
@@ -1542,12 +1718,23 @@ function saveSettingsFromForm() {
   s.maxTokens = Number($("max-tokens").value) || 8192;
   s.gatewayUrl = $("gateway-url").value.trim();
   s.gatewayToken = $("gateway-token").value.trim();
+  s.cliTandem = $("cli-tandem-toggle").checked;
+  s.cliTandemUrl = $("cli-tandem-url").value.trim();
+  s.cliTandemToken = $("cli-tandem-token").value.trim();
+  s.cliFirecrawl = $("cli-firecrawl-toggle").checked;
+  s.cliFirecrawlKey = $("cli-firecrawl-key").value.trim();
+  s.cliSandbox = $("cli-sandbox-toggle").checked;
   s.selfLearn = $("selflearn-toggle").checked;
   state.memory = $("memory-edit").value
     .split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 25);
   saveMemory();
+  // Editing settings by hand takes explicit control — exit Overdrive and keep
+  // the values just chosen (don't restore the old snapshot).
+  state.overdrive = false;
+  state.preOverdrive = null;
   saveSettings();
   pushLoopsToGateway();
+  syncQuickToggles();
   closeSettings();
   renderMessages();
 }
@@ -1560,11 +1747,84 @@ function openDrawer() {
   renderSkillList();
   $("drawer").classList.remove("hidden");
   $("drawer-backdrop").classList.remove("hidden");
+  enterOverlay($("drawer"));
 }
 function closeDrawer() {
   $("drawer").classList.add("hidden");
   $("drawer-backdrop").classList.add("hidden");
 }
+
+/* ---------- overlay accessibility: Escape, focus trap, focus restore ----------
+ * Modals and the drawer are plain divs toggled with .hidden. Give keyboard and
+ * screen-reader users a way out and keep focus inside the open dialog. */
+let overlayReturnFocus = null;
+
+function overlayFocusables(el) {
+  return [
+    ...el.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    ),
+  ].filter((n) => n.offsetParent !== null);
+}
+
+// Topmost open overlay element (modals sit above the drawer).
+function topOverlayEl() {
+  const modal = [
+    ...document.querySelectorAll(".modal-backdrop:not(.hidden) .modal"),
+  ].pop();
+  if (modal) return modal;
+  const drawer = $("drawer");
+  if (!drawer.classList.contains("hidden")) return drawer;
+  return null;
+}
+
+// Call right after an overlay becomes visible: remember what had focus and move
+// focus into the dialog.
+function enterOverlay(el) {
+  overlayReturnFocus = document.activeElement;
+  const f = overlayFocusables(el);
+  if (f.length) setTimeout(() => { try { f[0].focus(); } catch (_) {} }, 0);
+}
+
+function closeTopOverlay() {
+  if (!$("loop-backdrop").classList.contains("hidden")) closeLoopEditor();
+  else if (!$("skill-backdrop").classList.contains("hidden")) closeSkillEditor();
+  else if (!$("settings-backdrop").classList.contains("hidden")) closeSettings();
+  else if (!$("drawer").classList.contains("hidden")) closeDrawer();
+  else return;
+  if (overlayReturnFocus) {
+    try { overlayReturnFocus.focus(); } catch (_) {}
+    overlayReturnFocus = null;
+  }
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    if (topOverlayEl()) {
+      e.preventDefault();
+      closeTopOverlay();
+    }
+    return;
+  }
+  if (e.key === "Tab") {
+    const ov = topOverlayEl();
+    if (!ov) return;
+    const f = overlayFocusables(ov);
+    if (!f.length) return;
+    const first = f[0];
+    const last = f[f.length - 1];
+    if (!ov.contains(document.activeElement)) {
+      e.preventDefault();
+      first.focus();
+    } else if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+});
 
 /* ---------- composer ---------- */
 
@@ -1633,7 +1893,11 @@ function init() {
   sendBtn.onclick = send;
   inputEl.addEventListener("input", autoresize);
   inputEl.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey && !("ontouchstart" in window)) {
+    // The composer advertises a "send" return key (enterkeyhint="send"), so
+    // honor plain Enter on every device — including touch, where it previously
+    // fell through and just inserted a newline. Shift+Enter still adds a line;
+    // don't fire mid-IME-composition.
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       send();
     }
@@ -1648,6 +1912,39 @@ function init() {
     addImages([...e.target.files]);
     e.target.value = "";
   };
+
+  // quick toggles above the composer (mirror the settings, save instantly)
+  $("toggle-thinking").onclick = () => {
+    state.settings.thinking = !state.settings.thinking;
+    saveSettings();
+    syncQuickToggles();
+    buzz(8);
+  };
+  $("toggle-websearch").onclick = () => {
+    state.settings.webSearch = !state.settings.webSearch;
+    saveSettings();
+    syncQuickToggles();
+    buzz(8);
+  };
+  $("toggle-firecrawl").onclick = () => {
+    state.settings.firecrawl = !state.settings.firecrawl;
+    saveSettings();
+    syncQuickToggles();
+    buzz(8);
+  };
+  document.querySelectorAll(".effort-seg").forEach((seg) => {
+    seg.onclick = () => {
+      state.settings.effort = seg.dataset.effort;
+      saveSettings();
+      syncQuickToggles();
+      buzz(8);
+    };
+  });
+  $("toggle-overdrive").onclick = () => {
+    setOverdrive(!state.overdrive);
+    buzz(state.overdrive ? 25 : 8);
+  };
+  syncQuickToggles();
 
   // copy buttons inside rendered markdown (event delegation)
   messagesEl.addEventListener("click", (e) => {
@@ -1703,6 +2000,7 @@ function init() {
         saveSettings();
         closeSettings();
       }
+      syncQuickToggles();
       renderMessages();
     })
     .catch(() => {});
@@ -1715,6 +2013,22 @@ function init() {
 
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
+
+  // Keep the composer above the iOS keyboard: iOS overlays the software
+  // keyboard instead of shrinking the layout viewport, so track visualViewport
+  // and pin #app to its visible height.
+  const vv = window.visualViewport;
+  if (vv) {
+    const fit = () => {
+      const gap = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      document.documentElement.style.setProperty("--app-h", vv.height + "px");
+      // nudge into view so the input isn't flush against the keyboard
+      if (gap > 0 && document.activeElement === inputEl) scrollToBottom(true);
+    };
+    vv.addEventListener("resize", fit);
+    vv.addEventListener("scroll", fit);
+    fit();
   }
 }
 

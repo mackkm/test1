@@ -15,11 +15,17 @@ RUN apt-get update \
 WORKDIR /app
 COPY docs ./docs
 COPY server ./server
-RUN mkdir -p /workspace
+
+# Run as an unprivileged user: the gateway spawns a shell-capable agent, so it
+# must not run as root. Give the app + workspace to that user.
+RUN useradd --create-home --uid 10001 pocketclaw \
+  && mkdir -p /workspace \
+  && chown -R pocketclaw:pocketclaw /app /workspace
 
 ENV HOST=0.0.0.0 \
     PORT=3333 \
     POCKETCLAW_WORKSPACE=/workspace
 
+USER pocketclaw
 EXPOSE 3333
 CMD ["node", "server/server.js"]

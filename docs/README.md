@@ -60,10 +60,12 @@ Configuration (environment variables):
 | Variable | Meaning | Default |
 |---|---|---|
 | `PORT` / `HOST` | Where to listen | `3333` / `0.0.0.0` |
-| `POCKETCLAW_TOKEN` | Shared secret — **set this** if the gateway is reachable beyond your LAN | *(open)* |
+| `POCKETCLAW_TOKEN` | Shared secret clients must present. **Required** to expose the gateway beyond loopback — without it the server refuses a non-loopback bind (override with `POCKETCLAW_ALLOW_OPEN=1`) | *(none — loopback only)* |
 | `POCKETCLAW_WORKSPACE` | Directory the agent works in | current dir |
 | `CLAUDE_BIN` | Path to the `claude` binary | `claude` |
 | `CLAUDE_ARGS` | Extra CLI args, e.g. `--permission-mode acceptEdits` or `--allowedTools Read,Grep,WebSearch` | *(none)* |
+| `POCKETCLAW_SANDBOX` | `1` = run the agent restricted by default: isolated workspace, only safe read/research tools (no shell, no file writes). Also toggleable per request from the app (**⚙ → Sandbox mode**). Overrides broad `CLAUDE_ARGS` permission flags | *(off)* |
+| `POCKETCLAW_ALLOW_OPEN` | `1` = permit starting with no token on a non-loopback bind (otherwise refused). Only behind your own VPN/auth | *(off)* |
 | `TANDEM_MCP` | Connect a [Tandem Browser](https://tandembrowser.org): a streamable-http URL like `http://localhost:5173/mcp`, or a local path to Tandem's MCP `server.js` | *(off)* |
 | `TANDEM_MCP_TOKEN` | Bearer token for remote Tandem connections (e.g. over Tailscale) | *(none)* |
 | `FIRECRAWL_API_KEY` | Enable [Firecrawl](https://firecrawl.dev) web tools (search/scrape/interact) | *(off)* |

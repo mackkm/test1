@@ -25,6 +25,10 @@ You can do this entirely from your phone's browser:
 The `e2-micro` machine in `us-central1` is inside GCP's Always Free tier.
 Tear it down anytime with `terraform destroy`.
 
+Boots in **sandbox mode** by default (read/research tools only — no shell, no
+file writes), since this VM is reachable from the internet. Turn it off with
+`-var sandbox=false`, or flip it later per-request in the app (⚙ → Sandbox mode).
+
 ## Option B — Any Debian/Ubuntu VPS (DigitalOcean, Hetzner, Oracle Free, …)
 
 SSH in and run:

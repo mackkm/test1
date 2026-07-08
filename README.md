@@ -1,102 +1,74 @@
-# GCP Ethereum (ETH) and Ethereum Classic (ETC) Miner
+# 🦞 PocketClaw
 
-Terraform template for mining _Ethereum (ETH)_ and _Ethereum Classic (ETC)_ crypto currencies on Google
-Cloud Platform (GCP) GPU-enabled VM instances.
+An OpenClaw-style personal AI assistant that runs on your phone, with **Claude
+plugged in**. It's a mobile-first PWA you install to your home screen, plus a
+tiny zero-dependency gateway that lets your phone drive a full Claude Code agent
+on your own machine.
 
-<img align="centre" src="https://upload.wikimedia.org/wikipedia/commons/thumb/5/51/Google_Cloud_logo.svg/320px-Google_Cloud_logo.svg.png"/>
+Two ways to run it:
 
-<img align="right" src="https://upload.wikimedia.org/wikipedia/commons/thumb/0/05/Ethereum_logo_2014.svg/128px-Ethereum_logo_2014.svg.png"/>
+1. **Claude API (direct)** — pure client-side PWA. Paste your Anthropic API key;
+   it stays in your browser and requests go straight to `api.anthropic.com`.
+2. **Claude Code CLI (gateway)** — run `node server/server.js` on your computer
+   (or a VM). Your phone then drives a real Claude Code agent there — tools, file
+   access, browser control, scheduled loops — exactly how OpenClaw works.
 
-## Important!
+## Highlights
 
-* GCP is very sensitive about crypto mining on their platform. The scripts and
-  templates presented here have been carefully crafted to bypass detection however
-  as always _run it at your own risk_.
-
-* Even more importantly: _don't change the startup script_ or you may expose yourself
-  to the GCP wrath.
-
-* Ethereum mining may not be profitable at all times and it can get _very expensive
-  very quickly_ - you have been warned! Unless you've got access to a free GCP account
-  it may not be the wisest thing to do!
-
-## Medium article
-
-Check out my blog post [**Easy Etherum mining on GCP**](https://medium.com/coinmonks/easy-ethereum-mining-on-gcp-576f0aaaeeed) for more details.
+- 📱 Installable, offline-capable, futuristic glass UI
+- 🔁 **Loops** — recurring prompts on a schedule (run on the gateway even while
+  the app is closed; each loop remembers its previous runs)
+- ⚡ **Skills** + 🧠 **self-learning memory** that persists across chats
+- 🔍 Web search, 🔥 Firecrawl scraping, 🌐 Tandem browser control, 📷 vision
+- 🤝 Subagents + delegation, adjustable effort, and one-tap **Overdrive**
 
 ## Quick start
 
-The easiest way to start is by using the [Google Cloud Shell](https://cloud.google.com/shell).
-I assume that you already have a _GCP Project_ set up, let's say it's called `mining-project-12345`.
+**On your computer (CLI gateway):**
 
-1. Login to your [Google Cloud Console](https://console.cloud.google.com/)
+```sh
+node server/server.js
+# 🦞 PocketClaw gateway — app + API at http://localhost:3333
+```
 
-2. Open the cloud shell using the icon in the top-right corner of the console.
+Then open `http://<your-computer's-IP>:3333` on your phone (same Wi-Fi). If the
+gateway is reachable beyond your LAN, **set `POCKETCLAW_TOKEN`** first — the
+server refuses to start on a public interface without one.
 
-3. Once the shell starts up you may have to select the right project first:
+**API mode (no computer):** host the `docs/` folder on any HTTPS static host
+(GitHub Pages, Netlify, Cloudflare Pages, Vercel), open it on your phone, add to
+home screen, and paste your Anthropic API key in Settings.
 
-        cloudshell:~$ gcloud config set project mining-project-12345
-        Updated property [core/project].
-        cloudshell:~ (mining-project-12345)$
+**Cloud VM (24/7, phone-only):** see [`deploy/`](deploy/) for a one-command
+Google Cloud deployment (`deploy/gcp/`) and a container image (`deploy/Dockerfile`).
 
-4. Next we clone this GIT repository to Cloud Shell:
+## Documentation
 
-        cloudshell:~ (mining-project-12345)$ git clone https://github.com/mludvig/gcp-ethereum-miner.git
-        Cloning into 'gcp-ethereum-miner'...
-        remote: Enumerating objects: 41, done.
-        remote: Counting objects: 100% (41/41), done.
-        remote: Compressing objects: 100% (20/20), done.
-        remote: Total 41 (delta 23), reused 39 (delta 21), pack-reused 0
-        Receiving objects: 100% (41/41), 5.80 KiB | 2.90 MiB/s, done.
-        Resolving deltas: 100% (23/23), done.
+- **[`docs/README.md`](docs/README.md)** — full feature list, gateway
+  configuration (all environment variables), install steps, and security notes.
+- **[`deploy/README.md`](deploy/README.md)** — running the gateway on a VM.
+- **[`skills/pocketclaw/`](skills/pocketclaw/)** — PocketClaw packaged as a
+  reusable Claude Agent Skill (drop into `.claude/skills/`, the Agent SDK, or
+  claude.ai).
 
-        cloudshell:~ (mining-project-12345)$ cd gcp-ethereum-miner
-        cloudshell:~/gcp-ethereum-miner (mining-project-12345)$
+## Repository layout
 
-5. Configure `terraform.tfvars` to your liking.
+| Path | Purpose |
+|---|---|
+| `docs/` | The PWA — UI, storage, and Claude streaming clients (API + gateway). Also the static web root. |
+| `server/server.js` | The PocketClaw gateway — runs Claude Code CLI and streams to the app. |
+| `deploy/` | Container + cloud VM deployment for the gateway. |
+| `skills/pocketclaw/` | PocketClaw as an exportable Claude Agent Skill. |
 
-        # Ethereum (ETH) or Ethereum Classic (ETC)
-        coin_name           = "ETC"
+## Security
 
-        # Ethereum wallet address
-        wallet_address      = "0x99b36B44cf319c9E0ed4619ee2050B21ECac2c15"
+The gateway drives an agentic Claude Code process, so treat it like a shell:
 
-        # Launch instances in these provisioning models (best for high availability)
-        provisioning_models = ["SPOT", "STANDARD"]
+- It won't boot unauthenticated on a public interface — set `POCKETCLAW_TOKEN`
+  (or bind to loopback / opt in with `POCKETCLAW_ALLOW_OPEN=1` behind your own auth).
+- Prefer a VPN/Tailscale or an HTTPS reverse proxy over plain HTTP; your gateway
+  token and forwarded API key otherwise cross the network in cleartext.
+- The cloud deploy runs the agent as a non-root user, keeps the token in Secret
+  Manager (not VM metadata), and blocks the agent from the metadata endpoint.
 
-        # GPU types to use
-        gpu_types           = ["t4", "a100", "v100"]
-
-        # Number of instances per-gpu / per-region / per-provisioning_model
-        group_size          = 16
-
-    A note about `group_size` - each combination of GPU type + Region + Spot/Standard mode creates
-    a separate _Instance Group_ and each instance group will have the configured `group_size`.
-    It means that the number of instances eventually running will be up to *group_size *
-    number of instance groups*, of course only if your Service Quotas permit.
-
-6. Now's the time to start mining!
-
-        cloudshell:~/gcp-ethereum-miner (mining-project-12345)$ terraform init
-        cloudshell:~/gcp-ethereum-miner (mining-project-12345)$ terraform apply -auto-approve
-
-    You may be presented with a pop up saying "Authorize Cloud Shell" to make GCP API calls - click *Authorize*.
-
-You will see how Terraform starts creating the Instance Templates and Instance Groups. 
-When it's done head over to the [VM console](https://console.cloud.google.com/compute/instances)
-and you should see some instances starting up. 
-
-## GPU Quotas
-
-If there are none check out the [Instance Groups](https://console.cloud.google.com/compute/instanceGroups/list)
-console and in there the ERRORS tab in some of the IGs to figure out what's going on. 
-Most likely you'll be limited by **GPU Quotas** and will see messages like:
-
-* Instance creation failed: Quota GPUS_ALL_REGIONS exceeded. Limit 0.0 globally.
-* Instance creation failed: Quota PREEMTIBLE_NVIDIA_T4_GPUS exceeded. Limit 0.0 in region us-central1.
-
-If that's the case head to *IAM -> Quotas*, search for the above (e.g. GPUS_ALL_REGIONS) and try to get them increased.
-
-The form will ask for a reason or justification. Needless to say that "Crypto mining" is not a good one to put forward :)
-
-## Happy mining!
+See [`docs/README.md`](docs/README.md#security-notes) for the full rundown.
