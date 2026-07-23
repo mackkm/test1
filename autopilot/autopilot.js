@@ -28,6 +28,15 @@ const { pickCampaign } = require("./lib/research");
 const { writeScript } = require("./lib/script");
 const { render } = require("./lib/render");
 const { postEverywhere, enabledPlatforms } = require("./lib/post");
+const rewards = require("./lib/whop-rewards");
+
+/* Two ways to run:
+ *   rewards — earn from Whop Content Rewards: pick a paying open campaign,
+ *             make a compliant short, post it, submit the clip for payout.
+ *             Default whenever WHOP_API_KEY is set. Falls back to niche
+ *             content on cycles where no campaign is satisfiable.
+ *   niche   — grow your own audience: trend research for NICHE + OFFER.     */
+const MODE = process.env.AUTOPILOT_MODE || (rewards.enabled() ? "rewards" : "niche");
 
 const POSTS_PER_DAY = Math.max(0.1, Number(process.env.POSTS_PER_DAY || 3));
 const INTERVAL_MS = Math.round((24 * 3600 * 1000) / POSTS_PER_DAY);
@@ -40,6 +49,7 @@ const log = (...a) => console.error(new Date().toISOString(), ...a);
 
 const status = {
   startedAt: new Date().toISOString(),
+  mode: MODE,
   configured: Boolean(process.env.ANTHROPIC_API_KEY),
   platforms: enabledPlatforms(),
   running: false,
@@ -56,9 +66,45 @@ async function cycle({ dryRun = false } = {}) {
   status.running = true;
   const t0 = Date.now();
   try {
-    log(`[cycle ${id}] researching campaigns…`);
-    const campaign = await pickCampaign({ recentTopics: state.recentTopics(), log });
-    log(`[cycle ${id}] campaign: "${campaign.topic}" — ${campaign.angle} (${campaign.trendCount} trend signals)`);
+    // settle the fate of earlier Content Rewards submissions first
+    if (MODE === "rewards") {
+      const pending = state.kvGet("pending_submissions") || [];
+      if (pending.length) {
+        try {
+          const checked = await rewards.checkSubmissions(pending, log);
+          const resolved = checked.filter((s) => s.status === "approved" || s.status === "denied");
+          if (resolved.length) state.journal({ id, resolutions: resolved });
+          state.kvSet("pending_submissions", pending.filter((p) => !resolved.some((r) => r.id === p)));
+        } catch (e) {
+          log(`[cycle ${id}] submission check failed (will retry next cycle): ${e.message}`);
+        }
+      }
+    }
+
+    let campaign = null;
+    let bounty = null;
+    if (MODE === "rewards") {
+      log(`[cycle ${id}] scanning Whop Content Rewards…`);
+      const recent = state.readJournal(30).map((e) => e.bounty?.id).filter(Boolean);
+      const pick = await rewards.pickBounty({ recent, log });
+      if (pick) {
+        bounty = pick.bounty;
+        campaign = {
+          topic: bounty.title,
+          angle: pick.plan.angle,
+          why_now: `Whop Content Rewards campaign paying ${bounty.gross_reward_amount} ${bounty.currency}/1k views`,
+          cta: pick.plan.cta,
+          requirements: pick.plan,
+        };
+      } else {
+        log(`[cycle ${id}] no satisfiable campaign this cycle — falling back to niche content`);
+      }
+    }
+    if (!campaign) {
+      log(`[cycle ${id}] researching campaigns…`);
+      campaign = await pickCampaign({ recentTopics: state.recentTopics(), log });
+      log(`[cycle ${id}] campaign: "${campaign.topic}" — ${campaign.angle} (${campaign.trendCount} trend signals)`);
+    }
 
     log(`[cycle ${id}] writing script…`);
     const script = await writeScript(campaign);
@@ -83,9 +129,32 @@ async function cycle({ dryRun = false } = {}) {
       posted = await postEverywhere(item, log);
     }
 
+    // the payoff: hand the posted clip's URL to the Content Rewards campaign
+    let submission = null;
+    if (bounty && !dryRun) {
+      const clipUrl = pickClipUrl(posted.results, campaign.requirements?.platforms);
+      if (clipUrl) {
+        try {
+          const sub = await rewards.submitClip({ bountyId: bounty.id, url: clipUrl, caption: script.caption, idKey: id });
+          submission = { id: sub.id, status: sub.status || "submitted", url: clipUrl };
+          state.kvSet("pending_submissions", [...(state.kvGet("pending_submissions") || []), sub.id]);
+          log(`[cycle ${id}] submitted to "${bounty.title}" (${sub.id}) with ${clipUrl}`);
+        } catch (e) {
+          submission = { error: e.message };
+          log(`[cycle ${id}] bounty submission failed: ${e.message}`);
+        }
+      } else {
+        submission = { error: "no public post URL from socials to submit — enable YouTube or Instagram" };
+        log(`[cycle ${id}] ${submission.error}; video kept at ${media.videoPath} for manual submission`);
+      }
+    }
+
     state.journal({
       id,
+      mode: bounty ? "rewards" : "niche",
       topic: campaign.topic,
+      bounty: bounty ? { id: bounty.id, title: bounty.title, reward: bounty.gross_reward_amount, currency: bounty.currency } : undefined,
+      submission,
       title: script.title,
       video: path.basename(media.videoPath),
       duration: Number(media.durationSec.toFixed(1)),
@@ -105,6 +174,18 @@ async function cycle({ dryRun = false } = {}) {
   } finally {
     status.running = false;
   }
+}
+
+/* Which posted URL to hand to the campaign: honor the campaign's platform
+ * preference, else take the first real permalink (TikTok's placeholder URL is
+ * excluded — its API doesn't return one). */
+function pickClipUrl(results, preferredPlatforms = []) {
+  const usable = results.filter((r) => r.url && r.url.startsWith("http") && r.platform !== "webhook" && r.platform !== "whop" && r.url !== "https://www.tiktok.com/@me");
+  for (const p of preferredPlatforms || []) {
+    const hit = usable.find((r) => r.platform === p.toLowerCase());
+    if (hit) return hit.url;
+  }
+  return usable[0]?.url || null;
 }
 
 /* keep the newest N rendered videos so a small VM disk never fills up */
@@ -198,8 +279,10 @@ async function main() {
     return; // systemd restart after editing env brings the loop up
   }
   const p = enabledPlatforms();
-  log(`autopilot up: ${POSTS_PER_DAY}/day (every ${(INTERVAL_MS / 3600000).toFixed(1)}h), socials=[${p.socials.join(", ") || "none"}], whop=${p.whop}`);
+  log(`autopilot up [${MODE} mode]: ${POSTS_PER_DAY}/day (every ${(INTERVAL_MS / 3600000).toFixed(1)}h), socials=[${p.socials.join(", ") || "none"}], whop-forum=${p.whop}`);
   if (!p.socials.length && !p.whop) log("WARNING: no posting platform configured — cycles will render but publish nowhere.");
+  if (MODE === "rewards" && !p.socials.some((s) => s === "youtube" || s === "instagram"))
+    log("WARNING: rewards mode needs a permalink to submit — enable YouTube or Instagram for automatic payouts.");
 
   const tick = async () => {
     await cycle();

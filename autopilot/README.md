@@ -1,20 +1,31 @@
 # 📈 Campaign Shorts Autopilot
 
-A zero-dependency Node service that runs your short-form content operation
-24/7: it **researches** what's trending in your niche, has Claude pick one
-campaign angle and **write a tight script**, **renders** it into a captioned
-1080×1920 short (ffmpeg + TTS), **posts** it to your socials, then
-**announces it on Whop** with links to the posts. Repeat every few hours,
-forever.
+A zero-dependency Node service that runs a short-form content operation 24/7.
+Its primary mode earns from **[Whop Content Rewards](https://whop.com/discover/content-rewards/)**
+— campaigns that pay a fixed reward per 1,000 views on submitted clips
+(typically $0.50–$1.50/1k, up to $6/1k):
 
 ```
-research → script → render → post → whop
-   │          │        │        │      └─ forum post linking the socials
-   │          │        │        └─ YouTube Shorts · IG Reels · TikTok · webhook
-   │          │        └─ ffmpeg: TTS voiceover + line-timed captions + bg/music
-   │          └─ Claude: hook-first 7-10 line script, caption, hashtags
-   └─ Google Trends RSS · niche subreddits · Hacker News (all keyless)
+scan campaigns → pick one → script → render → post → submit clip → get paid
+      │             │          │        │       │         └─ POST /bounty_submissions
+      │             │          │        │       └─ YouTube Shorts · IG Reels · TikTok · webhook
+      │             │          │        └─ ffmpeg: TTS voiceover + line-timed captions
+      │             │          └─ Claude: compliant hook-first script + caption + required tags
+      │             └─ Claude rejects campaigns an original AI short can't satisfy
+      └─ GET /bounties?status=open  (Whop's Content Rewards API)
 ```
+
+Each cycle it lists open campaigns, has Claude choose one that's genuinely
+satisfiable with an **original** short (clipping campaigns that require the
+brand's source footage are skipped), renders a compliant video, posts it, and
+submits the permalink to the campaign. Approvals/denials are checked on later
+cycles and journaled — denial reasons feed back into future picks. Payouts
+land on your Whop balance (set up your payout method on whop.com first).
+
+**Niche mode** (`AUTOPILOT_MODE=niche`, or automatic fallback when no campaign
+fits) grows your own audience instead: keyless trend research (Google Trends,
+your subreddits, Hacker News) → trend-reactive shorts for your `NICHE`/`OFFER`,
+optionally announced to your own Whop community.
 
 ## Run it
 
@@ -37,11 +48,14 @@ All configuration is env vars — [`.env.example`](.env.example) documents every
 | Instagram Reels | `IG_USER_ID`, `IG_ACCESS_TOKEN`, `AUTOPILOT_PUBLIC_BASE` | Meta app + IG professional account (instagram_content_publish) |
 | TikTok | `TIKTOK_CLIENT_KEY`/`SECRET`/`REFRESH_TOKEN` | developers.tiktok.com (Content Posting API; posts stay private until the app passes audit) |
 | Anything else | `WEBHOOK_URL` | a Zapier/Make/n8n catch-hook — every short is POSTed there as JSON with `video_url` + copy |
-| Whop | `WHOP_API_KEY`, `WHOP_EXPERIENCE_ID` | whop.com dashboard → Developer |
+| Whop Content Rewards + payouts | `WHOP_API_KEY` (payout method configured on your Whop account) | whop.com dashboard → Developer |
+| Whop community announcements (optional) | `WHOP_EXPERIENCE_ID` (+ `WHOP_COMPANY_ID` if `public`) | your community's forum experience |
 
-**Fastest path to fully live:** set only `ANTHROPIC_API_KEY`, `WEBHOOK_URL`
-(Zapier zap → your socials) and the two Whop vars. Native platform APIs can be
-added one at a time later — nothing else changes.
+**Fastest path to earning:** `ANTHROPIC_API_KEY` + `WHOP_API_KEY` + YouTube
+(three vars + one device-code login) = full loop: campaign → short → posted →
+submitted → paid per 1k views. Rewards mode needs YouTube or Instagram enabled
+because campaign submissions require a public permalink; TikTok's API doesn't
+return one.
 
 ## Design notes
 
