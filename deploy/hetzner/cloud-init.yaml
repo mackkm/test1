@@ -1,0 +1,9 @@
+#cloud-config
+# Campaign Shorts Autopilot — Hetzner Cloud user-data.
+# All real setup lives in bootstrap.sh (same directory) so that creating a new
+# VM and upgrading an existing one are the exact same code path.
+package_update: true
+packages:
+  - curl
+runcmd:
+  - [sh, -c, "curl -fsSL https://raw.githubusercontent.com/mackkm/test1/master/deploy/hetzner/bootstrap.sh | REPO_URL='__REPO_URL__' REPO_BRANCH='__REPO_BRANCH__' bash 2>&1 | tee /var/log/autopilot-bootstrap.log"]
