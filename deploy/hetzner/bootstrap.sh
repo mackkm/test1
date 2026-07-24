@@ -40,6 +40,9 @@ if [ ! -f /etc/autopilot.env ]; then
   chmod 600 /etc/autopilot.env
 fi
 
+echo "==> installing Piper TTS (natural voice — approvals depend on it)"
+bash "$APP_DIR/deploy/hetzner/install-piper.sh" || echo "WARN: piper install failed — falling back to espeak-ng (robotic; fix later with deploy/hetzner/install-piper.sh)"
+
 echo "==> installing systemd service"
 cp "$APP_DIR/deploy/hetzner/autopilot.service" /etc/systemd/system/autopilot.service
 systemctl daemon-reload

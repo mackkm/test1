@@ -63,9 +63,10 @@ Rendered videos are kept in `/var/lib/autopilot/out` (newest 50) and served at
 
 ## Notes
 
-- **Voice**: the default espeak-ng voice is robotic. For natural neural voices
-  install [Piper](https://github.com/rhasspy/piper) on the VM and set
-  `PIPER_BIN` + `PIPER_VOICE` in the env — the renderer picks it up.
+- **Voice**: bootstrap installs [Piper](https://github.com/rhasspy/piper)
+  (natural neural TTS) automatically and points the autopilot at it; espeak-ng
+  is only the fallback if that download fails. Swap voices with
+  `PIPER_VOICE_NAME=en-us-ryan-high deploy/hetzner/install-piper.sh`.
 - **Backgrounds/music**: drop your own clips into
   `/opt/autopilot/autopilot/assets/backgrounds` and `…/assets/music`; the
   renderer rotates through them (only use media you have rights to).
