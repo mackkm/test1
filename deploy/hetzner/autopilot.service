@@ -1,0 +1,26 @@
+[Unit]
+Description=Campaign Shorts Autopilot (research -> render -> post, 24/7)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=autopilot
+Group=autopilot
+EnvironmentFile=/etc/autopilot.env
+Environment=AUTOPILOT_DATA=/var/lib/autopilot
+WorkingDirectory=/opt/autopilot/autopilot
+ExecStart=/usr/bin/node autopilot.js
+Restart=always
+RestartSec=15
+# renders are CPU-bursty; keep the box responsive
+Nice=5
+# hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/autopilot
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
