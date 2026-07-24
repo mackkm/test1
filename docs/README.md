@@ -32,7 +32,7 @@ in** — two ways:
   session resume, persona + skills + memory forwarded via `--append-system-prompt`
 - 🏷️ Conversations auto-title themselves (a tiny Haiku call, when an API key is set)
 - ⚡ Streaming responses with live "thinking" summaries (adaptive thinking)
-- 🧠 Model picker with live model list from the API (Opus 4.8, Fable 5, Sonnet 5, Haiku 4.5, …)
+- 🧠 Model picker with live model list from the API (Opus 5, Fable 5, Sonnet 5, Haiku 4.5, …)
 - 🎭 Customizable persona and effort level (low → max); big shuffled prompt library
 - ✨ **Skill suggestions** — PocketClaw can invent new skills tailored to how you
   actually use it (from your memory + recent chats)
@@ -70,6 +70,9 @@ Configuration (environment variables):
 | `TANDEM_MCP_TOKEN` | Bearer token for remote Tandem connections (e.g. over Tailscale) | *(none)* |
 | `FIRECRAWL_API_KEY` | Enable [Firecrawl](https://firecrawl.dev) web tools (search/scrape/interact) | *(off)* |
 | `FIRECRAWL_MCP` | Override the Firecrawl MCP URL; set `https://mcp.firecrawl.dev/v2/mcp` for the keyless rate-limited tier | *(auto)* |
+| `POCKETCLAW_CHAT_TIMEOUT_MS` | Kill a chat whose agent produces no output for this long | `180000` (3 min) |
+| `POCKETCLAW_LOOP_TIMEOUT_MS` | Hard cap on a single background loop run | `600000` (10 min) |
+| `POCKETCLAW_MAX_BODY_BYTES` | Largest accepted request body (photo uploads are base64 in the body) | `26214400` (25 MB) |
 
 Example with everything on:
 
@@ -84,6 +87,10 @@ Notes:
 - By default headless Claude Code can only use tools that don't need permission
   prompts; grant more with `CLAUDE_ARGS` (understand the risk before using
   `--dangerously-skip-permissions`).
+- The gateway recovers on its own from the two failures that used to strand a
+  conversation: a stale `--resume` session id (it retries once as a new session)
+  and an agent that stops producing output (the watchdog stops it and reports
+  back instead of leaving the phone waiting).
 - For access from anywhere (not just your Wi-Fi), put the gateway on a
   [Tailscale](https://tailscale.com) network or behind an HTTPS reverse proxy, and set
   `POCKETCLAW_TOKEN`.
@@ -129,3 +136,4 @@ python3 -m http.server 8080
 | `manifest.webmanifest` + `icons/` | PWA install metadata |
 | `sw.js` | Service worker (offline app shell caching) |
 | `../server/server.js` | PocketClaw gateway — runs Claude Code CLI and streams to the app |
+| `../test/` | Zero-dependency test suite (`npm test`) covering the gateway and the app's request/storage logic |

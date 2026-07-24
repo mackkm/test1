@@ -1,0 +1,14 @@
+{
+  "name": "pocketclaw",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PocketClaw — a phone-sized Claude assistant: a PWA plus a zero-dependency gateway that drives Claude Code.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server/server.js",
+    "test": "node --test test/*.test.js"
+  }
+}

@@ -59,6 +59,17 @@ Google Cloud deployment (`deploy/gcp/`) and a container image (`deploy/Dockerfil
 | `server/server.js` | The PocketClaw gateway — runs Claude Code CLI and streams to the app. |
 | `deploy/` | Container + cloud VM deployment for the gateway. |
 | `skills/pocketclaw/` | PocketClaw as an exportable Claude Agent Skill. |
+| `test/` | End-to-end tests for the gateway and the app's logic. |
+
+## Tests
+
+```sh
+npm test
+```
+
+No dependencies to install: the suite boots a real gateway against a stub
+`claude` binary and drives it over HTTP, and runs the app's request-building,
+markdown, and storage code in a `vm` sandbox.
 
 ## Security
 

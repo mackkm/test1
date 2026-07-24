@@ -47,6 +47,10 @@ docker build -t pocketclaw -f deploy/Dockerfile .
 docker run -d -p 3333:3333 -e POCKETCLAW_TOKEN=pick-a-password pocketclaw
 ```
 
+Unlike Options A and B, the container does **not** enable sandbox mode by
+default — add `-e POCKETCLAW_SANDBOX=1` if the agent should be restricted to
+read/research tools, or flip it later in the app (⚙ → Sandbox mode).
+
 ## Security notes
 
 - **Always set `POCKETCLAW_TOKEN`** on an internet-reachable gateway — it's the
@@ -56,6 +60,8 @@ docker run -d -p 3333:3333 -e POCKETCLAW_TOKEN=pick-a-password pocketclaw
   Tailscale IP instead of the public one, or front it with Caddy for HTTPS.
 - Your Anthropic API key is sent from the app to *your* gateway with each
   request and held in the gateway's memory only — never written to disk.
+- All three deploy paths run the agent as an unprivileged `pocketclaw` user,
+  never as root.
 - The agent works inside `/opt/pocketclaw-workspace` on the VM. Grant it more
   tool power via `CLAUDE_ARGS` in `/etc/pocketclaw.env` (e.g.
   `CLAUDE_ARGS=--permission-mode acceptEdits`), then `sudo systemctl restart pocketclaw`.

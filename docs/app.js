@@ -12,17 +12,24 @@ const DEFAULT_PERSONA =
   "Be concise by default — this is a mobile chat. Be direct, warm, and genuinely useful. " +
   "Use markdown when it helps readability.";
 
+const DEFAULT_MODEL = "claude-opus-5";
+
 // Fallback list used until the live /v1/models fetch succeeds.
 const FALLBACK_MODELS = [
-  { id: "claude-opus-4-8", label: "Claude Opus 4.8 (recommended)" },
+  { id: "claude-opus-5", label: "Claude Opus 5 (recommended)" },
   { id: "claude-fable-5", label: "Claude Fable 5 (most capable)" },
   { id: "claude-sonnet-5", label: "Claude Sonnet 5" },
+  { id: "claude-opus-4-8", label: "Claude Opus 4.8" },
   { id: "claude-haiku-4-5", label: "Claude Haiku 4.5 (fastest)" },
 ];
 
 // Models that accept adaptive thinking + effort. Older/smaller models get
 // a plain request with no thinking/output_config fields.
-const ADAPTIVE_RE = /fable-5|mythos-5|opus-4-[678]|sonnet-5|sonnet-4-6/;
+const ADAPTIVE_RE = /fable-5|mythos-5|opus-5|opus-4-[678]|sonnet-5|sonnet-4-6/;
+// Thinking is always on for these — sending thinking:{type:"disabled"} is a 400.
+const ALWAYS_THINKING_RE = /fable-5|mythos-5/;
+// Opus 5 accepts disabled thinking only at effort "high" or below.
+const EFFORT_GATED_THINKING_RE = /opus-5/;
 
 /* ---------- state ---------- */
 
@@ -30,7 +37,7 @@ const state = {
   settings: {
     backend: "api",       // "api" (direct, key) | "cli" (Claude Code via gateway)
     apiKey: "",
-    model: "claude-opus-4-8",
+    model: DEFAULT_MODEL,
     persona: DEFAULT_PERSONA,
     thinking: true,
     webSearch: true,
@@ -208,13 +215,21 @@ function loadState() {
       return fallback;
     }
   };
+  const arr = (key) => {
+    const v = read(key, []);
+    return Array.isArray(v) ? v : [];
+  };
   Object.assign(state.settings, read("pc_settings", {}) || {});
-  state.convos = Array.isArray(read("pc_convos", [])) ? read("pc_convos", []) : [];
-  state.loops = Array.isArray(read("pc_loops", [])) ? read("pc_loops", []) : [];
-  state.memory = Array.isArray(read("pc_memory", [])) ? read("pc_memory", []) : [];
+  state.convos = arr("pc_convos");
+  state.loops = arr("pc_loops");
+  state.memory = arr("pc_memory");
   const skills = read("pc_skills", null);
   state.skills = Array.isArray(skills) ? skills : defaultSkills();
   state.currentId = localStorage.getItem("pc_current") || null;
+  // Restore Overdrive along with the snapshot it needs to undo itself.
+  state.overdrive = !!state.settings.overdrive;
+  state.preOverdrive = state.settings.preOverdrive || null;
+  if (state.overdrive && !state.preOverdrive) state.overdrive = false;
 }
 
 // localStorage has a ~5MB budget and image messages (base64) fill it fast. A
@@ -262,10 +277,22 @@ function saveConvos() {
 function evictForSpace() {
   const cur = state.currentId;
   const older = state.convos.filter((c) => c.id !== cur);
+  let stripped = false;
   for (const c of older) {
     for (const m of c.messages || []) {
-      if (m.images && m.images.length) m.images = [];
+      if (m.images && m.images.length) {
+        m.images = [];
+        stripped = true;
+      }
     }
+  }
+  // Deleting a conversation is the last resort — if dropping the stored images
+  // already made room, keep the history.
+  if (stripped) {
+    try {
+      localStorage.setItem("pc_convos", JSON.stringify(state.convos));
+      return;
+    } catch (_) {}
   }
   while (state.convos.length > 1) {
     const idx = state.convos.findIndex((c) => c.id !== cur);
@@ -328,14 +355,21 @@ function escapeHtml(s) {
 }
 
 function renderInline(s) {
-  return s
-    .replace(/`([^`]+)`/g, (_, c) => "<code>" + c + "</code>")
+  // Pull code spans out first so their contents can't be re-parsed as markdown
+  // (`**x**` inside backticks must stay literal asterisks).
+  const spans = [];
+  let out = s.replace(/`([^`]+)`/g, (_, c) => {
+    spans.push(c);
+    return "\u0000" + (spans.length - 1) + "\u0000"; // NUL cannot appear in escaped text
+  });
+  out = out
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
     .replace(
       /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
       '<a href="$2" target="_blank" rel="noopener">$1</a>'
     );
+  return out.replace(/\u0000(\d+)\u0000/g, (_, i) => "<code>" + spans[Number(i)] + "</code>");
 }
 
 function renderTable(rows) {
@@ -695,22 +729,41 @@ function buildRequestBody(convo) {
   }
   if (tools.length) body.tools = tools;
   const adaptive = ADAPTIVE_RE.test(s.model);
-  const isFable = /fable-5|mythos-5/.test(s.model);
-  if (adaptive && s.thinking) {
-    // Fable 5 has thinking always on; adaptive + summarized is accepted there too.
-    body.thinking = { type: "adaptive", display: "summarized" };
-  } else if (adaptive && !isFable) {
-    body.thinking = { type: "disabled" };
+  const effort = s.effort || "";
+  if (adaptive && effort) {
+    body.output_config = { effort };
   }
-  if (adaptive && s.effort) {
-    body.output_config = { effort: s.effort };
+  if (adaptive) {
+    if (s.thinking) {
+      // Reasoning summaries are opt-in — the default returns empty thinking
+      // blocks, which would look like a long pause with nothing to show.
+      body.thinking = { type: "adaptive", display: "summarized" };
+    } else if (
+      // Fable/Mythos reject an explicit "disabled"; Opus 5 rejects it above
+      // "high" effort. In both cases just omit the field: thinking still runs,
+      // but no summary comes back, which is what the toggle actually controls.
+      !ALWAYS_THINKING_RE.test(s.model) &&
+      !(EFFORT_GATED_THINKING_RE.test(s.model) && (effort === "xhigh" || effort === "max"))
+    ) {
+      body.thinking = { type: "disabled" };
+    }
+  }
+  if (/fable-5|mythos-5/.test(s.model)) {
+    // Fable's safety classifiers can decline a request outright. Without a
+    // fallback the turn just stops; with one the API re-runs it on Opus and the
+    // user gets an answer.
+    body.fallbacks = [{ model: "claude-opus-4-8" }];
   }
   return body;
 }
 
 async function streamChat(convo, onThinking, onText, onActivity, signal) {
   const headers = apiHeaders();
-  if (state.settings.firecrawl) headers["anthropic-beta"] = "mcp-client-2025-11-20";
+  const betas = [];
+  if (state.settings.firecrawl) betas.push("mcp-client-2025-11-20");
+  // matches the fallbacks array in buildRequestBody
+  if (/fable-5|mythos-5/.test(state.settings.model)) betas.push("server-side-fallback-2026-06-01");
+  if (betas.length) headers["anthropic-beta"] = betas.join(",");
   const res = await fetch(API_BASE + "/v1/messages", {
     method: "POST",
     headers,
@@ -762,6 +815,9 @@ async function streamChat(convo, onThinking, onText, onActivity, signal) {
               onActivity(n ? "🔍 " + n + " results" : "🔍 search finished");
             } else if (b.type === "mcp_tool_use") {
               onActivity("🔥 " + (b.name || "web tool"));
+            } else if (b.type === "fallback") {
+              // safety classifiers declined; the API re-ran it on another model
+              onActivity("↪ handed off to " + (b.to?.model || "a fallback model"));
             }
             break;
           }
@@ -887,6 +943,17 @@ async function streamChatCli(convo, userText, images, onThinking, onText, onTool
 
 /* ---------- send flow ---------- */
 
+// Put a failed/cancelled message back in the composer — photos included, since
+// they were consumed from the attach strip when the send started.
+function restoreComposer(text, images) {
+  inputEl.value = text;
+  autoresize();
+  if (images && images.length) {
+    state.pendingImages = images.slice(0, 3);
+    renderAttachStrip();
+  }
+}
+
 async function send() {
   if (state.streaming) {
     state.abort?.abort();
@@ -999,8 +1066,7 @@ async function send() {
   if (errorMsg) {
     bubble.parentElement.remove();
     convo.messages.pop(); // let the user retry the same message
-    inputEl.value = text;
-    autoresize();
+    restoreComposer(text, images);
     appendError("⚠ " + errorMsg);
     saveConvos();
     return;
@@ -1008,6 +1074,14 @@ async function send() {
 
   if (stopReason === "refusal" && !assistantText) {
     assistantText = "*(Claude declined to answer this request.)*";
+    body.innerHTML = renderMarkdown(assistantText);
+  } else if (!assistantText && stopReason !== "aborted") {
+    // A turn that produced only tool activity (or nothing at all) used to leave
+    // an empty bubble that vanished on the next render — say what happened.
+    assistantText =
+      state.settings.backend === "cli"
+        ? "*(The agent finished without sending a reply — check the activity above.)*"
+        : "*(No response was returned.)*";
     body.innerHTML = renderMarkdown(assistantText);
   } else if (stopReason === "max_tokens") {
     assistantText += "\n\n*(Response hit the max-token limit — raise it in Settings to continue.)*";
@@ -1025,8 +1099,7 @@ async function send() {
     learnFromExchange(convo);
   } else if (stopReason === "aborted") {
     convo.messages.pop(); // nothing came back; drop the user turn so history stays valid
-    inputEl.value = text;
-    autoresize();
+    restoreComposer(text, images);
   }
   convo.updated = Date.now();
   saveConvos();
@@ -1599,6 +1672,11 @@ function setOverdrive(on) {
     state.preOverdrive = null;
     state.overdrive = false;
   }
+  // Overdrive writes its values straight into settings, so the snapshot has to
+  // persist too — otherwise a reload leaves the user stuck on Fable/max with
+  // their own model and effort gone for good.
+  s.overdrive = state.overdrive;
+  s.preOverdrive = state.preOverdrive;
   saveSettings();
   syncQuickToggles();
 }
@@ -1732,6 +1810,8 @@ function saveSettingsFromForm() {
   // the values just chosen (don't restore the old snapshot).
   state.overdrive = false;
   state.preOverdrive = null;
+  s.overdrive = false;
+  s.preOverdrive = null;
   saveSettings();
   pushLoopsToGateway();
   syncQuickToggles();
@@ -2002,6 +2082,9 @@ function init() {
       }
       syncQuickToggles();
       renderMessages();
+      // Re-sync loops on every open: a gateway that was restarted, reinstalled,
+      // or moved to a new machine has no idea about them otherwise.
+      pushLoopsToGateway();
     })
     .catch(() => {});
 
