@@ -40,6 +40,22 @@ node autopilot.js               # the 24/7 loop + status server :3444
 Deployment to a Hetzner VM (new or existing): [`deploy/hetzner/`](../deploy/hetzner/).
 All configuration is env vars — [`.env.example`](.env.example) documents every one.
 
+### Run it 24/7 with Docker (any machine — your computer, a VM, a NAS)
+
+The fastest path that needs **no Hetzner API** and no system setup — everything
+(node, ffmpeg, Piper neural voice) is baked into the image:
+
+```sh
+cp autopilot/.env.example autopilot/.env      # then edit: ANTHROPIC_API_KEY + WHOP_API_KEY
+docker compose -f autopilot/docker-compose.yml up -d --build
+curl http://localhost:3444/status
+# one-time YouTube auth:
+docker compose -f autopilot/docker-compose.yml exec autopilot node autopilot.js auth-youtube
+```
+
+`restart: unless-stopped` keeps it running across reboots. That's a live 24/7
+autopilot on whatever box you run it on.
+
 ## Credentials checklist (each unlocks its platform automatically)
 
 | Platform | You need | Where |

@@ -1,0 +1,26 @@
+# Campaign Shorts Autopilot — run it 24/7 with Docker on any machine you own.
+#
+#   1. cp autopilot/.env.example autopilot/.env   &&   edit autopilot/.env
+#      (set ANTHROPIC_API_KEY + WHOP_API_KEY at minimum)
+#   2. docker compose -f autopilot/docker-compose.yml up -d --build
+#   3. curl http://localhost:3444/status
+#
+# One-time YouTube auth (device code):
+#   docker compose -f autopilot/docker-compose.yml exec autopilot node autopilot.js auth-youtube
+services:
+  autopilot:
+    build:
+      context: ..
+      dockerfile: autopilot/Dockerfile
+    image: autopilot
+    container_name: autopilot
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "3444:3444"          # /status + /media (Instagram pulls video from /media)
+    volumes:
+      - autopilot-data:/var/lib/autopilot
+      # optional: your own footage/music the renderer rotates through
+      - ./assets:/app/autopilot/assets:ro
+volumes:
+  autopilot-data:
