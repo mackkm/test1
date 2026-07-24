@@ -26,6 +26,24 @@ Defaults: `cpx21` (3 vCPU / 4 GB, ~€8/mo — comfortable for several renders a
 day) in `fsn1`, Ubuntu 24.04. Override with `NAME= TYPE= LOCATION=` env vars.
 `provision.sh list` and `provision.sh delete NAME` manage what you've made.
 
+## C. One command, keys included (`go-live.sh`)
+
+The whole thing — provision, install, configure, start, verify — in a single
+run. Set your keys as env vars and go:
+
+```sh
+export HCLOUD_TOKEN=...        # Hetzner API token (Read & Write)
+export ANTHROPIC_API_KEY=...
+export WHOP_API_KEY=...        # Content Rewards: list campaigns + submit clips
+# optional: YT_CLIENT_ID YT_CLIENT_SECRET IG_USER_ID IG_ACCESS_TOKEN WEBHOOK_URL NICHE …
+./deploy/hetzner/go-live.sh
+```
+
+It creates a `cx22` VM, waits for first-boot install, writes `/etc/autopilot.env`
+from your env vars over SSH, restarts the service, and prints the `verify`
+result — the box is earning by the time it returns. Run it from your own
+machine or any existing VM (the Claude sandbox can't reach the Hetzner API).
+
 ## Configure once, runs forever
 
 ```sh
