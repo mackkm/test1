@@ -52,4 +52,9 @@ async function post({ videoUrl, caption, hashtags }) {
   return { platform: "instagram", id: pub.id, url: `https://www.instagram.com/reel/${pub.id}` };
 }
 
-module.exports = { name: "instagram", enabled, post };
+/* cheap credential check for `autopilot.js verify` */
+async function check() {
+  await requestJSON(`${GRAPH}/${IG_USER}?fields=id,username&access_token=${encodeURIComponent(TOKEN)}`);
+}
+
+module.exports = { name: "instagram", enabled, post, check };

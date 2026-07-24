@@ -50,6 +50,7 @@ cd /opt/autopilot/autopilot && sudo -u autopilot node autopilot.js auth-youtube
 
 | What | How |
 |---|---|
+| Check every credential works | `cd /opt/autopilot/autopilot && sudo -u autopilot node autopilot.js verify` |
 | Live status + recent runs | `curl http://VM_IP:3444/status` |
 | Logs | `journalctl -fu autopilot` |
 | Post right now | `cd /opt/autopilot/autopilot && sudo -u autopilot node autopilot.js once` |

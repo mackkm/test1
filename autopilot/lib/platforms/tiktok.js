@@ -93,4 +93,4 @@ async function post({ videoPath, title, hashtags }) {
   return { platform: "tiktok", id: publish_id, url: "https://www.tiktok.com/@me" };
 }
 
-module.exports = { name: "tiktok", enabled, post };
+module.exports = { name: "tiktok", enabled, post, accessToken };

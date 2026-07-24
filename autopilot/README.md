@@ -31,6 +31,7 @@ optionally announced to your own Whop community.
 
 ```sh
 node autopilot.js test-render   # proves ffmpeg+TTS work — no API keys needed
+node autopilot.js verify        # checks every configured credential against its live API
 node autopilot.js dry-run       # full cycle, skips posting (needs ANTHROPIC_API_KEY)
 node autopilot.js once          # one real cycle
 node autopilot.js               # the 24/7 loop + status server :3444

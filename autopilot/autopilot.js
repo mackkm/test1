@@ -254,6 +254,7 @@ async function main() {
   if (cmd === "auth-youtube") {
     return require("./lib/platforms/youtube").deviceAuth(console.log);
   }
+  if (cmd === "verify") return verify();
   if (cmd === "status") {
     console.log(JSON.stringify({ ...status, journal: state.readJournal(10) }, null, 2));
     return;
@@ -293,6 +294,52 @@ async function main() {
     setTimeout(tick, delay);
   };
   tick();
+}
+
+/* `node autopilot.js verify` — hit every configured credential's cheapest live
+ * endpoint and print what works, so first-boot problems surface in seconds
+ * instead of failed cycles. (The webhook is reported but not fired — zaps have
+ * side effects.) */
+async function verify() {
+  const yt = require("./lib/platforms/youtube");
+  const ig = require("./lib/platforms/instagram");
+  const tk = require("./lib/platforms/tiktok");
+  const checks = [
+    ["anthropic", Boolean(process.env.ANTHROPIC_API_KEY), async () => {
+      await require("./lib/claude").ask("Reply with OK.", "ping", { maxTokens: 8 });
+    }],
+    ["whop (content rewards)", rewards.enabled(), async () => {
+      const n = (await rewards.listOpenBounties()).length;
+      return `${n} open campaigns visible`;
+    }],
+    ["youtube", yt.enabled(), async () => void (await yt.accessToken())],
+    ["instagram", ig.enabled(), () => ig.check()],
+    ["tiktok", tk.enabled(), async () => void (await tk.accessToken())],
+    ["webhook", Boolean(process.env.WEBHOOK_URL), async () => "configured (not fired)"],
+    ["ffmpeg + tts", true, async () => {
+      const { render } = require("./lib/render");
+      const m = render({ lines: ["Verify check."], title: "verify" }, "verify", () => {});
+      fs.rmSync(m.videoPath, { force: true });
+      fs.rmSync(m.thumbPath, { force: true });
+      return process.env.PIPER_BIN ? "piper voice" : "espeak-ng voice (robotic — run install-piper.sh)";
+    }],
+  ];
+  let failed = 0;
+  for (const [label, configured, fn] of checks) {
+    if (!configured) {
+      console.log(`  –  ${label}: not configured`);
+      continue;
+    }
+    try {
+      const note = await fn();
+      console.log(`  ✔  ${label}${note ? `: ${note}` : ""}`);
+    } catch (e) {
+      failed++;
+      console.log(`  ✖  ${label}: ${e.message.slice(0, 200)}`);
+    }
+  }
+  if (process.env.AUTOPILOT_PUBLIC_BASE) console.log(`  –  public base: ${process.env.AUTOPILOT_PUBLIC_BASE} (Instagram pulls video from here)`);
+  process.exit(failed ? 1 : 0);
 }
 
 function requireConfig() {

@@ -111,4 +111,4 @@ async function post({ videoPath, title, caption, hashtags }) {
   return { platform: "youtube", id: json.id, url: `https://youtube.com/shorts/${json.id}` };
 }
 
-module.exports = { name: "youtube", enabled, post, deviceAuth };
+module.exports = { name: "youtube", enabled, post, deviceAuth, accessToken };
