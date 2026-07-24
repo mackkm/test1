@@ -1,7 +1,7 @@
 /* PocketClaw service worker — caches the app shell so it opens instantly
  * and works offline (API calls always go to the network). */
 
-const CACHE = "pocketclaw-v5";
+const CACHE = "pocketclaw-v6";
 const SHELL = [
   "./",
   "./index.html",

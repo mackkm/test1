@@ -22,7 +22,13 @@
  *   CLAUDE_BIN            path to the claude binary       (default: "claude")
  *   CLAUDE_ARGS           extra args appended to every claude invocation,
  *                         e.g. "--permission-mode acceptEdits" or
- *                         "--allowedTools Read,Grep,WebSearch"
+ *                         "--allowedTools Read,Grep,WebSearch". Quoted values
+ *                         are kept together, like a shell would.
+ *   POCKETCLAW_CHAT_TIMEOUT_MS   kill a chat that produces no output for this
+ *                         long                            (default 180000)
+ *   POCKETCLAW_LOOP_TIMEOUT_MS   hard cap on one loop run  (default 600000)
+ *   POCKETCLAW_MAX_BODY_BYTES    max request body, i.e. photo uploads
+ *                                                          (default 25 MB)
  *   TANDEM_MCP            connect the agent to a Tandem Browser instance
  *                         (https://tandembrowser.org). Either a streamable-http
  *                         URL like "http://localhost:5173/mcp" or a local path
@@ -38,6 +44,7 @@
 "use strict";
 
 const http = require("http");
+const crypto = require("crypto");
 const { spawn } = require("child_process");
 const fs = require("fs");
 const os = require("os");
@@ -48,7 +55,16 @@ const HOST = process.env.HOST || "0.0.0.0";
 const TOKEN = process.env.POCKETCLAW_TOKEN || "";
 const CLAUDE_BIN = process.env.CLAUDE_BIN || "claude";
 const WORKSPACE = process.env.POCKETCLAW_WORKSPACE || process.cwd();
-const EXTRA_ARGS = (process.env.CLAUDE_ARGS || "").split(" ").filter(Boolean);
+// Split CLAUDE_ARGS like a shell would: quoted values stay one argument, so
+// CLAUDE_ARGS='--append-system-prompt "be brief"' works as written.
+function tokenizeArgs(s) {
+  const out = [];
+  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  let m;
+  while ((m = re.exec(s)) !== null) out.push(m[1] ?? m[2] ?? m[3]);
+  return out;
+}
+const EXTRA_ARGS = tokenizeArgs(process.env.CLAUDE_ARGS || "");
 const TANDEM_MCP = process.env.TANDEM_MCP || "";
 const TANDEM_MCP_TOKEN = process.env.TANDEM_MCP_TOKEN || "";
 const FIRECRAWL_API_KEY = process.env.FIRECRAWL_API_KEY || "";
@@ -60,6 +76,10 @@ const DOCS_DIR = path.join(__dirname, "..", "docs");
 // exhaust a small VM (or silently disable a loop forever).
 const CHAT_IDLE_MS = Number(process.env.POCKETCLAW_CHAT_TIMEOUT_MS || 180000);
 const LOOP_MAX_MS = Number(process.env.POCKETCLAW_LOOP_TIMEOUT_MS || 600000);
+// Request body cap. Photos are base64 in the JSON body, so this has to be
+// comfortably larger than a few phone pictures (the app sends at most 3,
+// downscaled to 1280px JPEG).
+const MAX_BODY_BYTES = Number(process.env.POCKETCLAW_MAX_BODY_BYTES || 25 * 1024 * 1024);
 // Refusing to run wide-open: when no token is set we only allow a loopback
 // bind unless the operator explicitly opts into an open gateway.
 const ALLOW_OPEN = process.env.POCKETCLAW_ALLOW_OPEN === "1";
@@ -238,20 +258,44 @@ const MIME = {
   ".md": "text/markdown; charset=utf-8",
 };
 
+// Constant-time compare so a token can't be recovered by timing the response.
+function sameSecret(a, b) {
+  const x = Buffer.from(String(a || ""));
+  const y = Buffer.from(String(b || ""));
+  if (x.length !== y.length) return false;
+  return crypto.timingSafeEqual(x, y);
+}
+
 function authorized(req, url) {
   if (!TOKEN) return true;
-  if (req.headers.authorization === "Bearer " + TOKEN) return true;
-  return url.searchParams.get("token") === TOKEN;
+  const header = req.headers.authorization || "";
+  if (header.startsWith("Bearer ") && sameSecret(header.slice(7), TOKEN)) return true;
+  return sameSecret(url.searchParams.get("token"), TOKEN);
 }
+
+class BodyTooLarge extends Error {}
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
-    let data = "";
+    const chunks = [];
+    let size = 0;
+    // Trust content-length when it's present: reject before reading a huge body.
+    const declared = Number(req.headers["content-length"] || 0);
+    if (declared > MAX_BODY_BYTES) {
+      req.pause();
+      return reject(new BodyTooLarge("body too large"));
+    }
     req.on("data", (c) => {
-      data += c;
-      if (data.length > 1_000_000) reject(new Error("body too large"));
+      size += c.length;
+      if (size > MAX_BODY_BYTES) {
+        // Stop buffering, but leave the socket alive long enough to answer with
+        // a 413 — destroying it here would surface as a network error instead.
+        req.pause();
+        return reject(new BodyTooLarge("body too large"));
+      }
+      chunks.push(c);
     });
-    req.on("end", () => resolve(data));
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     req.on("error", reject);
   });
 }
@@ -271,11 +315,35 @@ function childEnv(key) {
     : process.env;
 }
 
+/* Uploads accumulate in the workspace forever otherwise — on a small always-on
+ * VM that's the thing that eventually fills the disk. Keep the newest few. */
+const MAX_UPLOADS_KEPT = 30;
+function pruneUploads(dir) {
+  try {
+    const files = fs
+      .readdirSync(dir)
+      .map((f) => {
+        const full = path.join(dir, f);
+        return { full, at: fs.statSync(full).mtimeMs };
+      })
+      .sort((a, b) => b.at - a.at);
+    for (const f of files.slice(MAX_UPLOADS_KEPT)) {
+      try { fs.unlinkSync(f.full); } catch (_) {}
+    }
+  } catch (_) {}
+}
+
 async function handleChat(req, res) {
   let body;
   try {
     body = JSON.parse(await readBody(req));
   } catch (e) {
+    if (e instanceof BodyTooLarge) {
+      res.writeHead(413, { "content-type": "application/json", connection: "close" });
+      return res.end(JSON.stringify({
+        error: "request too large (max " + Math.round(MAX_BODY_BYTES / 1048576) + " MB) — try fewer or smaller photos",
+      }));
+    }
     res.writeHead(400, { "content-type": "application/json" });
     return res.end(JSON.stringify({ error: "invalid JSON body" }));
   }
@@ -323,6 +391,7 @@ async function handleChat(req, res) {
         "\n\n[The user attached " + saved.length + " photo(s) from their phone, saved at: " +
         saved.join(", ") + " — use the Read tool to look at them.]";
     }
+    pruneUploads(dir);
   }
 
   res.writeHead(200, {
@@ -331,137 +400,189 @@ async function handleChat(req, res) {
     connection: "keep-alive",
     "x-accel-buffering": "no",
   });
-  const send = (obj) => res.write("data: " + JSON.stringify(obj) + "\n\n");
+  // One SSE writer for the whole request: writing after res.end() throws
+  // ERR_STREAM_WRITE_AFTER_END and would take the process down.
+  let closed = false;
+  const send = (obj) => {
+    if (closed || res.writableEnded) return;
+    try {
+      res.write("data: " + JSON.stringify(obj) + "\n\n");
+    } catch (_) {
+      closed = true;
+    }
+  };
+  const finish = () => {
+    if (closed) return;
+    closed = true;
+    try { res.end(); } catch (_) {}
+  };
 
-  const extra = ["--include-partial-messages"];
-  if (body.sessionId) extra.push("--resume", String(body.sessionId));
-  extra.push(
-    "--append-system-prompt",
-    String(body.persona || "").slice(0, 8000) + serverDirectives()
-  );
-  const args = claudeArgs(extra, { sandbox });
+  const persona = String(body.persona || "").slice(0, 8000);
+  const sessionId = body.sessionId ? String(body.sessionId) : "";
+  let aborted = false;
+  let current = null; // the live child, so req close can stop it across a retry
 
-  console.log(`[chat]${sandbox ? " [sandbox]" : ""} ${CLAUDE_BIN} ${args.join(" ")} (prompt: ${prompt.slice(0, 60)}…)`);
-  const child = spawn(CLAUDE_BIN, args, {
-    cwd,
-    env: childEnv(reqKey),
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-  child.stdin.write(prompt);
-  child.stdin.end();
+  // A stale --resume id (session pruned, or a workspace that moved) makes every
+  // turn in that conversation fail forever, because the app keeps sending the
+  // same id. Run once with --resume; if it dies without producing a result,
+  // retry once as a fresh session so the chat recovers on its own.
+  function run(useResume) {
+    const extra = ["--include-partial-messages"];
+    if (useResume && sessionId) extra.push("--resume", sessionId);
+    extra.push("--append-system-prompt", persona + serverDirectives());
+    const args = claudeArgs(extra, { sandbox });
 
-  let stderr = "";
-  let sawDelta = false;
-  let sentDone = false;
-  let buf = "";
-  let timedOut = false;
+    console.log(
+      `[chat]${sandbox ? " [sandbox]" : ""} ${CLAUDE_BIN} ${args.join(" ")} (prompt: ${prompt.slice(0, 60)}…)`
+    );
+    const child = spawn(CLAUDE_BIN, args, {
+      cwd,
+      env: childEnv(reqKey),
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    current = child;
 
-  // Watchdog: if claude produces no output for CHAT_IDLE_MS (stuck MCP
-  // handshake, waiting on stdin, network stall), kill it instead of leaking a
-  // process + SSE connection forever. Reset on every stdout chunk.
-  let idleTimer = null;
-  function stopWatchdog() {
-    if (idleTimer) clearTimeout(idleTimer);
-    idleTimer = null;
-  }
-  function armWatchdog() {
-    stopWatchdog();
-    idleTimer = setTimeout(() => {
-      timedOut = true;
-      if (!sentDone) send({ type: "error", message: `agent timed out (no output for ${Math.round(CHAT_IDLE_MS / 1000)}s)` });
-      try { child.kill("SIGTERM"); } catch (_) {}
-      setTimeout(() => { try { child.kill("SIGKILL"); } catch (_) {} }, 5000);
-    }, CHAT_IDLE_MS);
-  }
-  armWatchdog();
+    // A failed spawn (missing binary) rejects the stdin write with EPIPE; without
+    // a handler that's an uncaught exception and the gateway dies.
+    child.stdin.on("error", () => {});
+    child.stdin.end(prompt);
 
-  child.stderr.on("data", (d) => (stderr += d));
+    let stderr = "";
+    let sawDelta = false;
+    let sawOutput = false;
+    let sentDone = false;
+    let buf = "";
+    let timedOut = false;
 
-  child.stdout.on("data", (chunk) => {
+    // Watchdog: if claude produces no output for CHAT_IDLE_MS (stuck MCP
+    // handshake, waiting on stdin, network stall), kill it instead of leaking a
+    // process + SSE connection forever. Reset on every stdout chunk.
+    let idleTimer = null;
+    function stopWatchdog() {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = null;
+    }
+    function armWatchdog() {
+      stopWatchdog();
+      idleTimer = setTimeout(() => {
+        timedOut = true;
+        if (!sentDone) {
+          send({
+            type: "error",
+            message: `agent timed out (no output for ${Math.round(CHAT_IDLE_MS / 1000)}s)`,
+          });
+        }
+        try { child.kill("SIGTERM"); } catch (_) {}
+        setTimeout(() => { try { child.kill("SIGKILL"); } catch (_) {} }, 5000);
+      }, CHAT_IDLE_MS);
+    }
     armWatchdog();
-    buf += chunk;
-    let nl;
-    while ((nl = buf.indexOf("\n")) !== -1) {
-      const line = buf.slice(0, nl).trim();
-      buf = buf.slice(nl + 1);
-      if (!line) continue;
-      let ev;
-      try {
-        ev = JSON.parse(line);
-      } catch (_) {
-        continue;
-      }
-      handleClaudeEvent(ev);
-    }
-  });
 
-  function handleClaudeEvent(ev) {
-    switch (ev.type) {
-      case "stream_event": {
-        const e = ev.event || {};
-        if (e.type === "content_block_delta") {
-          if (e.delta?.type === "text_delta") {
-            sawDelta = true;
-            send({ type: "text", text: e.delta.text });
-          } else if (e.delta?.type === "thinking_delta") {
-            send({ type: "thinking", text: e.delta.thinking });
-          }
+    child.stderr.on("data", (d) => (stderr += d));
+
+    child.stdout.on("data", (chunk) => {
+      armWatchdog();
+      buf += chunk;
+      let nl;
+      while ((nl = buf.indexOf("\n")) !== -1) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        let ev;
+        try {
+          ev = JSON.parse(line);
+        } catch (_) {
+          continue; // non-JSON noise on stdout is not fatal
         }
-        break;
+        handleClaudeEvent(ev);
       }
-      case "assistant": {
-        for (const block of ev.message?.content || []) {
-          if (block.type === "tool_use") {
-            let preview = "";
-            try {
-              preview = JSON.stringify(block.input);
-            } catch (_) {}
-            if (preview.length > 160) preview = preview.slice(0, 160) + "…";
-            send({ type: "tool", name: block.name, preview });
-          } else if (block.type === "text" && !sawDelta) {
-            // fallback for CLI versions without --include-partial-messages
-            send({ type: "text", text: block.text });
+    });
+
+    function handleClaudeEvent(ev) {
+      switch (ev.type) {
+        case "stream_event": {
+          const e = ev.event || {};
+          if (e.type === "content_block_delta") {
+            if (e.delta?.type === "text_delta") {
+              sawDelta = true;
+              sawOutput = true;
+              send({ type: "text", text: e.delta.text });
+            } else if (e.delta?.type === "thinking_delta") {
+              send({ type: "thinking", text: e.delta.thinking });
+            }
           }
+          break;
         }
-        break;
-      }
-      case "result": {
-        sentDone = true;
-        send({
-          type: "done",
-          session_id: ev.session_id,
-          is_error: !!ev.is_error,
-          cost_usd: ev.total_cost_usd,
-        });
-        break;
+        case "assistant": {
+          for (const block of ev.message?.content || []) {
+            if (block.type === "tool_use") {
+              let preview = "";
+              try {
+                preview = JSON.stringify(block.input);
+              } catch (_) {}
+              if (preview.length > 160) preview = preview.slice(0, 160) + "…";
+              sawOutput = true;
+              send({ type: "tool", name: block.name, preview });
+            } else if (block.type === "text" && !sawDelta) {
+              // fallback for CLI versions without --include-partial-messages
+              sawOutput = true;
+              send({ type: "text", text: block.text });
+            }
+          }
+          break;
+        }
+        case "result": {
+          sentDone = true;
+          send({
+            type: "done",
+            session_id: ev.session_id,
+            is_error: !!ev.is_error,
+            cost_usd: ev.total_cost_usd,
+          });
+          break;
+        }
       }
     }
+
+    // spawn errors fire "error" and then "close"; only settle once.
+    let settled = false;
+    function failed(message) {
+      if (settled) return;
+      settled = true;
+      // Nothing reached the phone yet and we were resuming — the session id is
+      // the likely culprit, so start over without it before giving up.
+      if (useResume && sessionId && !sawOutput && !timedOut && !aborted) {
+        console.log("[chat] resume failed, retrying as a new session");
+        return run(false);
+      }
+      send({ type: "error", message });
+      finish();
+    }
+
+    child.on("close", (code) => {
+      stopWatchdog();
+      if (sentDone || timedOut || aborted) return finish();
+      failed(
+        "claude exited with code " + code +
+        (stderr ? ": " + stderr.trim().slice(-500) : "")
+      );
+    });
+
+    child.on("error", (err) => {
+      stopWatchdog();
+      failed("failed to start claude: " + err.message);
+    });
   }
-
-  child.on("close", (code) => {
-    stopWatchdog();
-    if (!sentDone && !timedOut) {
-      send({
-        type: "error",
-        message:
-          "claude exited with code " + code +
-          (stderr ? ": " + stderr.trim().slice(-500) : ""),
-      });
-    }
-    res.end();
-  });
-
-  child.on("error", (err) => {
-    stopWatchdog();
-    send({ type: "error", message: "failed to start claude: " + err.message });
-    res.end();
-  });
 
   // phone hung up / user tapped stop → stop the agent
   req.on("close", () => {
-    stopWatchdog();
-    if (child.exitCode === null) child.kill("SIGTERM");
+    aborted = true;
+    if (current && current.exitCode === null) {
+      try { current.kill("SIGTERM"); } catch (_) {}
+    }
   });
+
+  run(true);
 }
 
 /* ---------- loops: scheduled prompts that run even while the phone is away ----------
@@ -492,19 +613,18 @@ function recordLoopRun(loop, text, isError) {
   persistLoops();
 }
 
-function runLoop(loop) {
-  if (runningLoops.has(loop.id)) return;
+// A key is only one of the ways the CLI can authenticate — a gateway running as
+// a logged-in Claude Code user has none. So we always try the run, and only
+// explain the missing key if it actually failed.
+function loopFailureHint() {
+  return loopKey || process.env.ANTHROPIC_API_KEY
+    ? ""
+    : " (the gateway has no Anthropic API key and no Claude Code login — open the app " +
+      "with your key in Settings, or set ANTHROPIC_API_KEY on the server)";
+}
 
-  // No key available → park the run instead of spawning a doomed child. After a
-  // restart the in-memory key is gone, so background loops would otherwise fail
-  // every tick until the user reopens the app; record it visibly and bail.
-  const key = loopKey || process.env.ANTHROPIC_API_KEY || "";
-  if (!key) {
-    loop.lastRunAt = Date.now(); // don't hammer every minute
-    recordLoopRun(loop, "loop parked — no Anthropic API key available on the gateway. Open the app (or set ANTHROPIC_API_KEY on the server) to resume.", true);
-    console.log(`[loop] "${loop.name}" parked (no API key)`);
-    return;
-  }
+function runLoop(loop) {
+  if (runningLoops.has(loop.id)) return false;
 
   runningLoops.add(loop.id);
   loop.lastRunAt = Date.now(); // set at start so a slow run can't double-fire
@@ -514,76 +634,92 @@ function runLoop(loop) {
   const sandbox = sandboxActive();
   const cwd = sandbox ? SANDBOX_DIR : WORKSPACE;
   fs.mkdirSync(cwd, { recursive: true });
-  const extra = loop.sessionId ? ["--resume", loop.sessionId] : [];
-  extra.push("--append-system-prompt", serverDirectives());
-  const args = claudeArgs(extra, { sandbox });
 
-  const child = spawn(CLAUDE_BIN, args, {
-    cwd,
-    env: childEnv(loopKey),
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-  child.stdin.write(loop.prompt);
-  child.stdin.end();
+  // Same stale-session recovery as chat: a loop whose stored session id no
+  // longer resolves would otherwise fail on every tick, forever.
+  function attempt(useResume) {
+    const extra = useResume && loop.sessionId ? ["--resume", loop.sessionId] : [];
+    extra.push("--append-system-prompt", serverDirectives());
+    const args = claudeArgs(extra, { sandbox });
 
-  let buf = "";
-  let stderr = "";
-  let gotResult = false;
-  let timedOut = false;
+    const child = spawn(CLAUDE_BIN, args, {
+      cwd,
+      env: childEnv(loopKey),
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    child.stdin.on("error", () => {});
+    child.stdin.end(loop.prompt);
 
-  // Hard cap: a loop child that hangs would keep loop.id in runningLoops
-  // forever, so the scheduler would silently skip this loop for the life of the
-  // process. Kill it and clear the flag so the loop recovers next tick.
-  const killer = setTimeout(() => {
-    timedOut = true;
-    try { child.kill("SIGTERM"); } catch (_) {}
-    setTimeout(() => { try { child.kill("SIGKILL"); } catch (_) {} }, 5000);
-  }, LOOP_MAX_MS);
+    let buf = "";
+    let stderr = "";
+    let gotResult = false;
+    let timedOut = false;
+    let settled = false;
 
-  child.stderr.on("data", (d) => (stderr += d));
-  child.stdout.on("data", (chunk) => {
-    buf += chunk;
-    let nl;
-    while ((nl = buf.indexOf("\n")) !== -1) {
-      const line = buf.slice(0, nl).trim();
-      buf = buf.slice(nl + 1);
-      if (!line) continue;
-      let ev;
-      try {
-        ev = JSON.parse(line);
-      } catch (_) {
-        continue;
+    // Hard cap: a loop child that hangs would keep loop.id in runningLoops
+    // forever, so the scheduler would silently skip this loop for the life of the
+    // process. Kill it and clear the flag so the loop recovers next tick.
+    const killer = setTimeout(() => {
+      timedOut = true;
+      try { child.kill("SIGTERM"); } catch (_) {}
+      setTimeout(() => { try { child.kill("SIGKILL"); } catch (_) {} }, 5000);
+    }, LOOP_MAX_MS);
+
+    child.stderr.on("data", (d) => (stderr += d));
+    child.stdout.on("data", (chunk) => {
+      buf += chunk;
+      let nl;
+      while ((nl = buf.indexOf("\n")) !== -1) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        let ev;
+        try {
+          ev = JSON.parse(line);
+        } catch (_) {
+          continue;
+        }
+        if (ev.type === "result") {
+          gotResult = true;
+          loop.sessionId = ev.session_id || loop.sessionId;
+          recordLoopRun(loop, ev.result ?? "", ev.is_error);
+        }
       }
-      if (ev.type === "result") {
-        gotResult = true;
-        loop.sessionId = ev.session_id || loop.sessionId;
-        recordLoopRun(loop, ev.result ?? "", ev.is_error);
+    });
+
+    function settle(message) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(killer);
+      if (!gotResult && !timedOut && useResume && loop.sessionId) {
+        console.log(`[loop] "${loop.name}" resume failed, retrying as a new session`);
+        loop.sessionId = undefined;
+        return attempt(false);
       }
+      runningLoops.delete(loop.id);
+      if (!gotResult) recordLoopRun(loop, message, true);
+      console.log(`[loop] "${loop.name}" finished`);
     }
-  });
-  child.on("close", (code) => {
-    clearTimeout(killer);
-    runningLoops.delete(loop.id);
-    if (!gotResult) {
-      recordLoopRun(
-        loop,
+
+    child.on("close", (code) => {
+      settle(
         timedOut
           ? "loop run timed out after " + Math.round(LOOP_MAX_MS / 60000) + " min and was stopped"
-          : "loop run failed (exit " + code + ")" + (stderr ? ": " + stderr.trim().slice(-300) : ""),
-        true
+          : "loop run failed (exit " + code + ")" +
+            (stderr ? ": " + stderr.trim().slice(-300) : "") + loopFailureHint()
       );
-    }
-    console.log(`[loop] "${loop.name}" finished`);
-  });
-  child.on("error", (err) => {
-    clearTimeout(killer);
-    runningLoops.delete(loop.id);
-    recordLoopRun(loop, "loop spawn error: " + err.message, true);
-    console.error(`[loop] "${loop.name}" spawn error:`, err.message);
-  });
+    });
+    child.on("error", (err) => {
+      console.error(`[loop] "${loop.name}" spawn error:`, err.message);
+      settle("loop spawn error: " + err.message + loopFailureHint());
+    });
+  }
+
+  attempt(true);
+  return true;
 }
 
-setInterval(() => {
+const loopTicker = setInterval(() => {
   const now = Date.now();
   for (const loop of loops) {
     if (!loop.enabled || !loop.prompt) continue;
@@ -591,6 +727,7 @@ setInterval(() => {
     if (!loop.lastRunAt || now - loop.lastRunAt >= every) runLoop(loop);
   }
 }, 60000);
+loopTicker.unref?.(); // don't hold the process open on shutdown
 
 async function handleLoops(req, res, url) {
   if (req.method === "GET") {
@@ -601,9 +738,10 @@ async function handleLoops(req, res, url) {
     let body;
     try {
       body = JSON.parse(await readBody(req));
-    } catch (_) {
-      res.writeHead(400, { "content-type": "application/json" });
-      return res.end(JSON.stringify({ error: "invalid JSON body" }));
+    } catch (e) {
+      const tooBig = e instanceof BodyTooLarge;
+      res.writeHead(tooBig ? 413 : 400, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ error: tooBig ? "request too large" : "invalid JSON body" }));
     }
     // Carry over the app's tool config + key so background loops match chat.
     if (body.anthropicKey) loopKey = String(body.anthropicKey);
@@ -637,8 +775,14 @@ async function handleLoops(req, res, url) {
 
 /* ---------- static file serving (the PWA itself) ---------- */
 
-function serveStatic(pathname, res) {
-  let rel = decodeURIComponent(pathname);
+function serveStatic(req, pathname, res) {
+  let rel;
+  try {
+    rel = decodeURIComponent(pathname);
+  } catch (_) {
+    res.writeHead(400);
+    return res.end("bad request");
+  }
   if (rel === "/" || rel === "") rel = "/index.html";
   const file = path.normalize(path.join(DOCS_DIR, rel));
   // Contain to DOCS_DIR: compare with a trailing separator so a sibling dir
@@ -652,10 +796,14 @@ function serveStatic(pathname, res) {
       res.writeHead(404);
       return res.end("not found");
     }
+    // The service worker revalidates the shell on every load, so let the browser
+    // reuse it in-session but never serve a stale copy after a redeploy.
     res.writeHead(200, {
       "content-type": MIME[path.extname(file)] || "application/octet-stream",
+      "content-length": data.length,
+      "cache-control": "no-cache",
     });
-    res.end(data);
+    res.end(req.method === "HEAD" ? undefined : data);
   });
 }
 
@@ -667,7 +815,10 @@ const server = http.createServer((req, res) => {
   // CORS (lets a Pages-hosted copy of the app talk to this gateway too)
   res.setHeader("access-control-allow-origin", "*");
   res.setHeader("access-control-allow-headers", "content-type, authorization");
-  res.setHeader("access-control-allow-methods", "GET, POST, OPTIONS");
+  // PUT is how the app syncs its loops — without it a Pages-hosted copy fails
+  // preflight and background loops silently never reach the gateway.
+  res.setHeader("access-control-allow-methods", "GET, HEAD, POST, PUT, OPTIONS");
+  res.setHeader("access-control-max-age", "600");
   if (req.method === "OPTIONS") {
     res.writeHead(204);
     return res.end();
@@ -717,16 +868,23 @@ const server = http.createServer((req, res) => {
       res.writeHead(404, { "content-type": "application/json" });
       return res.end(JSON.stringify({ error: "loop not found" }));
     }
-    runLoop(loop);
+    const started = runLoop(loop);
     res.writeHead(200, { "content-type": "application/json" });
-    return res.end(JSON.stringify({ started: true }));
+    // started:false means it was already running — the app shouldn't report it
+    // as a fresh run.
+    return res.end(JSON.stringify({ started, running: true }));
   }
 
-  if (req.method !== "GET") {
+  if (url.pathname.startsWith("/api/")) {
+    res.writeHead(404, { "content-type": "application/json" });
+    return res.end(JSON.stringify({ error: "unknown endpoint" }));
+  }
+
+  if (req.method !== "GET" && req.method !== "HEAD") {
     res.writeHead(405);
     return res.end();
   }
-  serveStatic(url.pathname, res);
+  serveStatic(req, url.pathname, res);
 });
 
 // Never boot an unauthenticated agent onto a public interface. With no token,
@@ -745,8 +903,9 @@ if (!TOKEN && !isLoopback(HOST) && !ALLOW_OPEN) {
 }
 
 server.listen(PORT, HOST, () => {
-  console.log(`🦞 PocketClaw gateway`);
-  console.log(`   app + API:  http://localhost:${PORT}`);
+  const bound = server.address().port; // PORT=0 asks the OS to pick one
+  console.log(`🦞 PocketClaw gateway — listening on port ${bound}`);
+  console.log(`   app + API:  http://localhost:${bound}`);
   console.log(`   workspace:  ${WORKSPACE}`);
   console.log(`   claude:     ${CLAUDE_BIN}${EXTRA_ARGS.length ? " " + EXTRA_ARGS.join(" ") : ""}`);
   console.log(
@@ -760,5 +919,27 @@ server.listen(PORT, HOST, () => {
   console.log(`   firecrawl:  ${FIRECRAWL_MCP ? "on" : "off (set FIRECRAWL_API_KEY to enable web tools)"}`);
   console.log(`   sandbox:    ${SANDBOX_ENV ? "ON — restricted tools, isolated workspace" : "off (set POCKETCLAW_SANDBOX=1, or toggle it in the app)"}`);
   console.log(`   loops:      ${loops.length} configured`);
-  console.log(`\nOn your phone (same network), open http://<this-computer's-IP>:${PORT}`);
+  console.log(`\nOn your phone (same network), open http://<this-computer's-IP>:${bound}`);
 });
+
+server.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    console.error(`\n✋ Port ${PORT} is already in use — set PORT=<other port> or stop the other process.\n`);
+    process.exit(1);
+  }
+  throw err;
+});
+
+// Clean shutdown: stop accepting connections, stop the scheduler, and don't
+// leave orphaned claude children behind on a systemd restart.
+let shuttingDown = false;
+for (const sig of ["SIGINT", "SIGTERM"]) {
+  process.on(sig, () => {
+    if (shuttingDown) process.exit(0);
+    shuttingDown = true;
+    console.log(`\n🦞 shutting down (${sig})…`);
+    clearInterval(loopTicker);
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 3000).unref();
+  });
+}

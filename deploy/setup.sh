@@ -37,10 +37,19 @@ rm -rf /opt/pocketclaw
 git clone --depth 1 "$REPO_URL" /opt/pocketclaw
 mkdir -p /opt/pocketclaw-workspace
 
+# The gateway drives a shell-capable agent, so it must not run as root.
+id -u pocketclaw >/dev/null 2>&1 \
+  || useradd --system --create-home --home-dir /opt/pocketclaw-home --shell /usr/sbin/nologin pocketclaw
+mkdir -p /opt/pocketclaw-home
+chown -R pocketclaw:pocketclaw /opt/pocketclaw-workspace /opt/pocketclaw-home
+
+umask 077
 cat > /etc/pocketclaw.env <<ENV
 POCKETCLAW_TOKEN=$POCKETCLAW_TOKEN
 ENV
-chmod 600 /etc/pocketclaw.env
+# readable by the service user, writable only by root
+chown root:pocketclaw /etc/pocketclaw.env
+chmod 640 /etc/pocketclaw.env
 
 # Default to sandbox mode (read/research tools only) on a VM reachable from the
 # internet. Override with: POCKETCLAW_SANDBOX=0 curl ... | sudo bash
@@ -53,6 +62,8 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+User=pocketclaw
+Environment=HOME=/opt/pocketclaw-home
 Environment=PORT=$PORT
 Environment=POCKETCLAW_WORKSPACE=/opt/pocketclaw-workspace
 Environment=POCKETCLAW_SANDBOX=$SANDBOX
