@@ -27,7 +27,9 @@ async function post({ title, caption, hashtags, videoUrl, thumbUrl, topic, durat
       duration_sec: durationSec,
     },
   });
-  return { platform: "webhook", id: null, url: URL_, response: typeof res === "string" ? res.slice(0, 200) : res };
+  // url stays null: WEBHOOK_URL is a private endpoint, not a public permalink —
+  // it must not be linked from the Whop post or submitted to a campaign.
+  return { platform: "webhook", id: null, url: null, response: typeof res === "string" ? res.slice(0, 200) : res };
 }
 
 module.exports = { name: "webhook", enabled, post };

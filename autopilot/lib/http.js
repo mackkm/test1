@@ -8,7 +8,6 @@
 
 const https = require("https");
 const http = require("http");
-const net = require("net");
 const tls = require("tls");
 const { URL } = require("url");
 
@@ -88,8 +87,13 @@ async function requestFollow(url, opts = {}, hops = 5) {
   const res = await request(url, opts);
   if ([301, 302, 303, 307, 308].includes(res.status) && res.headers.location && hops > 0) {
     const next = new URL(res.headers.location, url).toString();
-    const method = res.status === 303 ? "GET" : opts.method;
-    return requestFollow(next, { ...opts, method }, hops - 1);
+    const nextOpts = { ...opts };
+    // 303 (and by common practice 301/302 on POST) switch to GET without a body
+    if (res.status === 303 || ((res.status === 301 || res.status === 302) && opts.method === "POST")) {
+      nextOpts.method = "GET";
+      delete nextOpts.body;
+    }
+    return requestFollow(next, nextOpts, hops - 1);
   }
   return res;
 }

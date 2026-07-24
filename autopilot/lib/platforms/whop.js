@@ -19,14 +19,17 @@ const BASE = process.env.WHOP_BASE_URL || "https://api.whop.com/api/v1";
 
 const enabled = () => Boolean(API_KEY && EXPERIENCE);
 
-async function post({ whopPost, title, caption, links = [] }) {
+async function post({ whop_post, whopPost, title, caption, links = [] }) {
+  // the script's tailored community post arrives as `whop_post` (snake_case);
+  // accept `whopPost` too so either caller shape works
+  const wp = whop_post || whopPost;
   const linkLines = links.length
     ? "\n\n" + links.map((l) => `▶ [${l.platform}](${l.url})`).join("\n")
     : "";
   const body = {
     experience_id: EXPERIENCE,
-    title: (whopPost && whopPost.title) || title,
-    content: ((whopPost && whopPost.content) || caption) + linkLines,
+    title: (wp && wp.title) || title,
+    content: ((wp && wp.content) || caption) + linkLines,
   };
   if (EXPERIENCE === "public" && COMPANY) body.company_id = COMPANY;
   const res = await requestJSON(`${BASE}/forum_posts`, {

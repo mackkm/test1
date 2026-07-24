@@ -90,7 +90,10 @@ async function post({ videoPath, title, hashtags }) {
     if (status === "FAILED") throw new Error(`tiktok publish failed: ${st.data.fail_reason || "unknown"}`);
     if (Date.now() > deadline) throw new Error("tiktok publish timed out");
   }
-  return { platform: "tiktok", id: publish_id, url: "https://www.tiktok.com/@me" };
+  // TikTok's Content Posting API returns no public permalink, so leave url null
+  // rather than emit a dead "@me" link (it would otherwise be linked from the
+  // Whop post and offered as a campaign submission URL).
+  return { platform: "tiktok", id: publish_id, url: null };
 }
 
 module.exports = { name: "tiktok", enabled, post, accessToken };

@@ -49,7 +49,19 @@ async function post({ videoUrl, caption, hashtags }) {
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: form({ creation_id: container.id, access_token: TOKEN }),
   });
-  return { platform: "instagram", id: pub.id, url: `https://www.instagram.com/reel/${pub.id}` };
+  // The public Reel URL uses a shortcode, not the numeric media id — fetch the
+  // real permalink (this URL is what gets submitted to Whop campaigns, so it
+  // must actually resolve). Fall back to the media id only if the field is absent.
+  let url = null;
+  try {
+    const meta = await requestJSON(
+      `${GRAPH}/${pub.id}?fields=permalink&access_token=${encodeURIComponent(TOKEN)}`
+    );
+    url = meta.permalink || null;
+  } catch {
+    /* permalink fetch is best-effort */
+  }
+  return { platform: "instagram", id: pub.id, url };
 }
 
 /* cheap credential check for `autopilot.js verify` */

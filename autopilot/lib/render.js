@@ -100,10 +100,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
   return header + events + "\n";
 }
 
-function pickAsset(dir, seed) {
+const VISUAL_RE = /\.(mp4|mov|mkv|webm|jpg|jpeg|png)$/i;
+const AUDIO_RE = /\.(mp3|wav|m4a|aac|ogg|opus|flac)$/i;
+
+/* Deterministically pick a file (by id hash) matching `re` from a dir, or null.
+ * `re` distinguishes background visuals from music beds — reusing one filter
+ * for both silently dropped every music track. */
+function pickAsset(dir, seed, re = VISUAL_RE) {
   let files = [];
   try {
-    files = fs.readdirSync(dir).filter((f) => /\.(mp4|mov|mkv|webm|jpg|jpeg|png)$/i.test(f));
+    files = fs.readdirSync(dir).filter((f) => re.test(f));
   } catch {
     return null;
   }
@@ -176,13 +182,15 @@ function render(script, id, log = console.error) {
 
   // 3) final mux: background + captions + voice (+ optional music bed)
   const dur = durationSec.toFixed(2);
-  const bg = pickAsset(path.join(ASSETS, "backgrounds"), id);
-  const music = pickAsset(path.join(ASSETS, "music"), id);
+  const bg = pickAsset(path.join(ASSETS, "backgrounds"), id, VISUAL_RE);
+  const music = pickAsset(path.join(ASSETS, "music"), id, AUDIO_RE);
+  const totalFrames = Math.max(1, Math.round(durationSec * 25));
   const args = ["-y", "-v", "error"];
   let vFilter;
   if (bg && /\.(jpg|jpeg|png)$/i.test(bg)) {
     args.push("-loop", "1", "-i", bg);
-    vFilter = `[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,zoompan=z='min(zoom+0.0006,1.25)':d=25*${dur}:s=1080x1920:fps=25`;
+    // zoompan d is an integer frame count, not an expression — a slow Ken Burns
+    vFilter = `[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,zoompan=z='min(zoom+0.0006,1.25)':d=${totalFrames}:s=1080x1920:fps=25`;
   } else if (bg) {
     args.push("-stream_loop", "-1", "-i", bg);
     vFilter = `[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=25`;

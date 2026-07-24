@@ -349,7 +349,12 @@ function requireConfig() {
   }
 }
 
-main().catch((e) => {
-  console.error("fatal:", e);
-  process.exit(1);
-});
+// run as CLI, but stay require()-able for tests
+if (require.main === module) {
+  main().catch((e) => {
+    console.error("fatal:", e);
+    process.exit(1);
+  });
+}
+
+module.exports = { cycle, pickClipUrl, status };

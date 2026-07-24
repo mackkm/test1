@@ -1,0 +1,6 @@
+# keep secrets, local state, and VCS cruft out of the autopilot image
+**/.git
+**/node_modules
+autopilot/.env
+autopilot/data
+**/*.log
