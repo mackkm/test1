@@ -1,0 +1,34 @@
+name: test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # the gateway targets the Node versions the deploy paths install
+        node: ["20", "22"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # No dependencies: the suite runs the gateway against a stub claude binary.
+      - run: npm test
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check JavaScript parses
+        run: |
+          for f in server/server.js docs/app.js docs/sw.js test/*.js; do
+            node --check "$f"
+          done
+      - name: Check shell scripts parse
+        run: bash -n deploy/setup.sh
