@@ -34,6 +34,11 @@ bad()  { printf '  \033[31m✖\033[0m %s\n' "$*"; PROBLEMS=$((PROBLEMS+1)); }
 head_() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
+if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+  sed -n '2,19p' "$0" | sed 's/^#\{1,\} \{0,1\}//'
+  exit 0
+fi
+
 # ---------------------------------------------------------------- remote mode
 if [ "${1:-}" = "--remote" ]; then
   TARGET="${2:?usage: check-vm.sh --remote NAME_OR_IP}"
