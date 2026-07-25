@@ -57,8 +57,9 @@ Google Cloud deployment (`deploy/gcp/`) and a container image (`deploy/Dockerfil
 |---|---|
 | `docs/` | The PWA — UI, storage, and Claude streaming clients (API + gateway). Also the static web root. |
 | `server/server.js` | The PocketClaw gateway — runs Claude Code CLI and streams to the app. |
-| `deploy/` | Container + cloud VM deployment for the gateway. |
+| `deploy/` | Container + cloud VM deployment for the gateway (`deploy/hetzner/` deploys the autopilot). |
 | `skills/pocketclaw/` | PocketClaw as an exportable Claude Agent Skill. |
+| `autopilot/` | **Campaign Shorts Autopilot** — 24/7 trend research → Claude script → ffmpeg short → posts to YouTube/IG/TikTok/webhook, then announces on Whop. See [`autopilot/README.md`](autopilot/README.md). |
 
 ## Security
 
