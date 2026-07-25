@@ -68,6 +68,7 @@ cd /opt/autopilot/autopilot && sudo -u autopilot node autopilot.js auth-youtube
 
 | What | How |
 |---|---|
+| **Full VM health check** | `./deploy/hetzner/check-vm.sh --remote shorts-autopilot` (or run it on the box) |
 | Prove the install is sound (offline) | `cd /opt/autopilot/autopilot && sudo -u autopilot node autopilot.js test` |
 | Check every credential works | `cd /opt/autopilot/autopilot && sudo -u autopilot node autopilot.js verify` |
 | Live status + recent runs | `curl http://VM_IP:3444/status` |
@@ -80,6 +81,32 @@ cd /opt/autopilot/autopilot && sudo -u autopilot node autopilot.js auth-youtube
 Rendered videos are kept in `/var/lib/autopilot/out` (newest 50) and served at
 `http://VM_IP:3444/media/<file>` — that URL is what Instagram ingests, so set
 `AUTOPILOT_PUBLIC_BASE=http://VM_IP:3444` when using IG.
+
+## Is it working? (`check-vm.sh`)
+
+One command answers "is the box up, is the service running, is it configured,
+is it producing shorts, and is it getting paid?"
+
+```sh
+# from your machine (queries the Hetzner API, then runs the checks over SSH)
+HCLOUD_TOKEN=... ./deploy/hetzner/check-vm.sh --remote shorts-autopilot
+./deploy/hetzner/check-vm.sh --remote 1.2.3.4     # by IP, skips the API lookup
+
+# or on the VM itself
+/opt/autopilot/deploy/hetzner/check-vm.sh
+```
+
+It reports server state from the Hetzner API, SSH reachability, the install
+(node/ffmpeg/Piper), which keys are configured (**names only — never values**),
+systemd status *or* a live container process, the `/status` endpoint, and a
+journal summary: shorts rendered, campaign submissions, approvals/denials with
+reasons, per-platform post counts and failures, plus disk and memory. It ends
+with `HEALTHY` / `OK with warnings` / `DEGRADED` and exits 0/0/1 (2 if the box
+is unreachable), so it can be dropped into a cron or an uptime check.
+
+It also catches the config mistakes that silently stop earnings — rewards mode
+with no YouTube/Instagram (nothing to submit), Instagram without
+`AUTOPILOT_PUBLIC_BASE`, or YouTube configured but never authorized.
 
 ## Notes
 
