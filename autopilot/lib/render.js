@@ -223,3 +223,5 @@ function render(script, id, log = console.error) {
 }
 
 module.exports = { render };
+// pure helpers exposed for the test suite (test/e2e.js)
+module.exports._test = { assTime, buildAss, pickAsset, VISUAL_RE, AUDIO_RE, gradientColors };

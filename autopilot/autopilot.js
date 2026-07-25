@@ -10,6 +10,8 @@
  *   node autopilot.js once          one full cycle, then exit
  *   node autopilot.js dry-run       research + script + render, but skip posting
  *   node autopilot.js test-render   render a built-in sample script (no API keys needed)
+ *   node autopilot.js test          run the offline end-to-end test suite
+ *   node autopilot.js verify        live-check every configured credential
  *   node autopilot.js auth-youtube  one-time YouTube device authorization
  *   node autopilot.js status        print current state and exit
  *
@@ -255,6 +257,14 @@ async function main() {
     return require("./lib/platforms/youtube").deviceAuth(console.log);
   }
   if (cmd === "verify") return verify();
+  if (cmd === "test") {
+    // full offline suite: real ffmpeg/TTS, stubbed external APIs
+    const r = require("child_process").spawnSync(
+      process.execPath, [path.join(__dirname, "test", "e2e.js"), ...process.argv.slice(3)],
+      { stdio: "inherit" }
+    );
+    process.exit(r.status ?? 1);
+  }
   if (cmd === "status") {
     console.log(JSON.stringify({ ...status, journal: state.readJournal(10) }, null, 2));
     return;

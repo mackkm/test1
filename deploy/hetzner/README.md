@@ -68,6 +68,7 @@ cd /opt/autopilot/autopilot && sudo -u autopilot node autopilot.js auth-youtube
 
 | What | How |
 |---|---|
+| Prove the install is sound (offline) | `cd /opt/autopilot/autopilot && sudo -u autopilot node autopilot.js test` |
 | Check every credential works | `cd /opt/autopilot/autopilot && sudo -u autopilot node autopilot.js verify` |
 | Live status + recent runs | `curl http://VM_IP:3444/status` |
 | Logs | `journalctl -fu autopilot` |

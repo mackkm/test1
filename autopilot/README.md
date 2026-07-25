@@ -31,11 +31,34 @@ optionally announced to your own Whop community.
 
 ```sh
 node autopilot.js test-render   # proves ffmpeg+TTS work — no API keys needed
+node autopilot.js test          # full offline test suite (49 checks, no keys, no network)
 node autopilot.js verify        # checks every configured credential against its live API
 node autopilot.js dry-run       # full cycle, skips posting (needs ANTHROPIC_API_KEY)
 node autopilot.js once          # one real cycle
 node autopilot.js               # the 24/7 loop + status server :3444
 ```
+
+### Test suite
+
+`test/e2e.js` verifies every stage without any credentials or internet access:
+external APIs (Claude, Whop, socials) are stubbed and the HTTP client runs
+against a throwaway localhost server, while everything that must genuinely
+work on the VM is exercised for real — ffmpeg, the TTS engine, caption
+timing, the orchestrator, the journal, and the status/media server.
+
+```sh
+node test/e2e.js            # all 49 checks (~90s: it renders real videos)
+node test/e2e.js render     # only sections matching "render"
+```
+
+Covered: HTTP client (redirects, 303-after-POST, timeouts, error surfacing) ·
+journal/kv persistence · caption timing and ASS generation · real renders from
+gradient, image (Ken Burns), and looping-video backgrounds with a music bed ·
+campaign-requirement merging · Whop campaign filtering, pagination, selection,
+submission idempotency, and approval/denial tracking · per-platform error
+isolation and permalink-leak prevention · full `cycle()` in rewards, niche, and
+dry-run modes plus failure handling · status/media server including the
+path-traversal guard.
 
 Deployment to a Hetzner VM (new or existing): [`deploy/hetzner/`](../deploy/hetzner/).
 All configuration is env vars — [`.env.example`](.env.example) documents every one.
