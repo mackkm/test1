@@ -106,12 +106,6 @@ for f in d["firewalls"]:
 # Rule sets are declared as JSON so the API payload stays readable.
 firewall_rules_node() {
     local range="${GAME_PORT_RANGE/-/-}"
-    local status_rule=""
-    if [[ -n ${BOOTSTRAP_STATUS_PORT:-} ]]; then
-        # Temporary: opened only while BOOTSTRAP_STATUS_PORT is set in config.env.
-        status_rule=",
-  {\"direction\":\"in\",\"protocol\":\"tcp\",\"port\":\"${BOOTSTRAP_STATUS_PORT}\",\"source_ips\":[\"0.0.0.0/0\",\"::/0\"],\"description\":\"bootstrap status (temporary)\"}"
-    fi
     cat <<JSON
 [
   {"direction":"in","protocol":"tcp","port":"22","source_ips":["0.0.0.0/0","::/0"],"description":"ssh"},
@@ -122,7 +116,7 @@ firewall_rules_node() {
   {"direction":"in","protocol":"tcp","port":"8081","source_ips":["0.0.0.0/0","::/0"],"description":"billing (bare-IP fallback port)"},
   {"direction":"in","protocol":"tcp","port":"${range}","source_ips":["0.0.0.0/0","::/0"],"description":"game servers tcp"},
   {"direction":"in","protocol":"udp","port":"${range}","source_ips":["0.0.0.0/0","::/0"],"description":"game servers udp"},
-  {"direction":"in","protocol":"icmp","source_ips":["0.0.0.0/0","::/0"],"description":"icmp"}${status_rule}
+  {"direction":"in","protocol":"icmp","source_ips":["0.0.0.0/0","::/0"],"description":"icmp"}
 ]
 JSON
 }
@@ -219,39 +213,40 @@ ${rendered_config}
       set -a; . ./config.env; set +a
       export HOST_ROLE=panel
 
-      # Optional progress endpoint. Provisioning happens with no inbound SSH, so
-      # without this a stalled install is invisible. Serves only the log file,
-      # and closes itself shortly after a successful run.
-      STATUS_PORT="\${BOOTSTRAP_STATUS_PORT:-}"
-      if [ -n "\$STATUS_PORT" ]; then
-        mkdir -p /run/ptero-status
-        exec > >(tee -a /run/ptero-status/bootstrap.log) 2>&1
-        # This runs before 10-common.sh, so python3 is not guaranteed yet. The
-        # server is backgrounded with stderr discarded, so a missing interpreter
-        # would otherwise fail silently and leave the install unobservable.
-        if ! command -v python3 >/dev/null 2>&1; then
-          echo "installing python3 for the status endpoint"
-          DEBIAN_FRONTEND=noninteractive apt-get update -y >/dev/null 2>&1 || true
-          DEBIAN_FRONTEND=noninteractive apt-get install -y python3 >/dev/null 2>&1 || true
-        fi
-        # cloud-init's own log explains failures that happen before this script.
-        ln -sf /var/log/cloud-init-output.log /run/ptero-status/cloud-init.log || true
-        python3 -m http.server "\$STATUS_PORT" --bind 0.0.0.0 \\
-          --directory /run/ptero-status >/dev/null 2>&1 &
-        STATUS_PID=\$!
-        sleep 1
-        kill -0 "\$STATUS_PID" 2>/dev/null \\
-          && echo "status endpoint listening on :\${STATUS_PORT}" \\
-          || echo "WARNING: status endpoint failed to start"
+      # Optional progress publishing. Provisioning happens with no inbound SSH,
+      # so a stalled install is otherwise invisible. The log is copied into the
+      # web roots and served by nginx on port 80 — deliberately not a separate
+      # port, because operators behind restrictive egress often cannot reach
+      # anything but 80/443. Removed again after a successful run.
+      mkdir -p /run/ptero-status
+      exec > >(tee -a /run/ptero-status/bootstrap.log) 2>&1
+
+      if [ "\${BOOTSTRAP_PUBLISH_LOG:-false}" = "true" ]; then
+        echo "publishing install log at http://<host>/bootstrap.log"
+        mkdir -p /var/www/html
+        publish_loop() {
+          while true; do
+            for root in /var/www/html /var/www/pterodactyl/public; do
+              [ -d "\$root" ] || continue
+              cp /run/ptero-status/bootstrap.log "\$root/bootstrap.log" 2>/dev/null || true
+              cp /var/log/cloud-init-output.log "\$root/cloud-init.log" 2>/dev/null || true
+            done
+            sleep 5
+          done
+        }
+        publish_loop &
+        PUBLISH_PID=\$!
         finish() {
           rc=\$?
           echo "=== bootstrap finished with exit code \${rc} ==="
+          sleep 8
           if [ "\$rc" -eq 0 ]; then
-            sleep 180
-            kill "\$STATUS_PID" 2>/dev/null || true
-            rm -rf /run/ptero-status
+            kill "\$PUBLISH_PID" 2>/dev/null || true
+            rm -f /var/www/html/bootstrap.log /var/www/html/cloud-init.log \\
+                  /var/www/pterodactyl/public/bootstrap.log \\
+                  /var/www/pterodactyl/public/cloud-init.log
           else
-            echo "=== leaving the status port open so the failure can be read ==="
+            echo "=== leaving the log published so the failure can be read ==="
           fi
         }
         trap finish EXIT
