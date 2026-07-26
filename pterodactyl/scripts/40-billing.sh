@@ -94,6 +94,11 @@ set_env() {
     if grep -qE "^${key}=" .env; then
         sed -i "s|^${key}=.*|${key}=${value}|" .env
     else
+        # .env.example ships without a trailing newline, so appending blindly
+        # glues the first new key onto the last existing one and corrupts both.
+        if [[ -s .env ]] && [[ -n "$(tail -c1 .env)" ]]; then
+            printf '\n' >> .env
+        fi
         printf '%s=%s\n' "$key" "$value" >> .env
     fi
 }
@@ -123,6 +128,13 @@ set_env CACHE_STORE      file
 set_env CACHE_DRIVER     file
 set_env SESSION_DRIVER   file
 set_env QUEUE_CONNECTION database
+
+# Recent Laravel defaults the mysql collation to utf8mb4_0900_ai_ci, which only
+# exists in MySQL 8. Paymenter documents MariaDB, and MariaDB rejects it with
+# "Unknown collation", failing every migration. Pin a collation both accept.
+set_env DB_CHARSET   utf8mb4
+set_env DB_COLLATION utf8mb4_unicode_ci
+sed -i 's/utf8mb4_0900_ai_ci/utf8mb4_unicode_ci/g' config/database.php 2>/dev/null || true
 
 # Recorded so a failed unattended run shows which drivers were actually in play.
 log "billing drivers: $(grep -hE '^(CACHE_STORE|CACHE_DRIVER|SESSION_DRIVER|QUEUE_CONNECTION|REDIS_CLIENT|REDIS_PORT)=' .env | tr '\n' ' ')"
