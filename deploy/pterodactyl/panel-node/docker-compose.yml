@@ -1,0 +1,122 @@
+x-common:
+  panel-db: &panel-db-environment
+    MYSQL_PASSWORD: &panel-db-password ${PANEL_DB_PASSWORD}
+    MYSQL_ROOT_PASSWORD: ${PANEL_DB_ROOT_PASSWORD}
+  pay-db: &pay-db-environment
+    MYSQL_PASSWORD: &pay-db-password ${PAYMENTER_DB_PASSWORD}
+    MYSQL_ROOT_PASSWORD: ${PAYMENTER_DB_ROOT_PASSWORD}
+
+services:
+  # Reverse proxy: terminates TLS for both the panel and the billing storefront,
+  # so neither app needs its own certs and both can share ports 80/443.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /srv/caddy/data:/data
+      - /srv/caddy/config:/config
+    environment:
+      PANEL_DOMAIN: ${PANEL_DOMAIN}
+      BILLING_DOMAIN: ${BILLING_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    depends_on:
+      - panel
+      - paymenter
+
+  panel-database:
+    image: mariadb:11
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password
+    volumes:
+      - /srv/pterodactyl/database:/var/lib/mysql
+    environment:
+      <<: *panel-db-environment
+      MYSQL_DATABASE: "panel"
+      MYSQL_USER: "pterodactyl"
+
+  panel-cache:
+    image: redis:alpine
+    restart: unless-stopped
+
+  # Pterodactyl Panel (official image) - web UI, API, and job queue.
+  panel:
+    image: ghcr.io/pterodactyl/panel:latest
+    restart: unless-stopped
+    links:
+      - panel-database
+      - panel-cache
+    volumes:
+      - /srv/pterodactyl/var/:/app/var/
+      - /srv/pterodactyl/nginx/:/etc/nginx/http.d/
+      - /srv/pterodactyl/logs/:/app/storage/logs
+    environment:
+      APP_URL: "https://${PANEL_DOMAIN}"
+      APP_TIMEZONE: "UTC"
+      APP_SERVICE_AUTHOR: "noreply@${PANEL_DOMAIN}"
+      APP_ENV: "production"
+      APP_ENVIRONMENT_ONLY: "false"
+      CACHE_DRIVER: "redis"
+      SESSION_DRIVER: "redis"
+      QUEUE_DRIVER: "redis"
+      REDIS_HOST: "panel-cache"
+      DB_HOST: "panel-database"
+      DB_PORT: "3306"
+      DB_PASSWORD: *panel-db-password
+      HASHIDS_LENGTH: 8
+      # Safe as "*" here only because this container has no published host
+      # port - the only thing that can reach it is Caddy, on this same
+      # internal docker network. Do not set this to "*" if you ever publish
+      # the panel's port directly to the host.
+      TRUSTED_PROXIES: "*"
+
+  pay-database:
+    image: mariadb:lts
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password
+    volumes:
+      - /srv/paymenter/database:/var/lib/mysql
+    environment:
+      <<: *pay-db-environment
+      MYSQL_DATABASE: "paymenter"
+      MYSQL_USER: "paymenter"
+
+  pay-cache:
+    image: redis:alpine
+    restart: unless-stopped
+
+  # Paymenter - billing/storefront: takes payments and provisions servers on
+  # the Panel via its Application API.
+  paymenter:
+    image: ghcr.io/paymenter/paymenter:latest
+    restart: unless-stopped
+    links:
+      - pay-database
+      - pay-cache
+    volumes:
+      - /srv/paymenter/app:/app/var/
+      - /srv/paymenter/storage/logs:/app/storage/logs
+      - /srv/paymenter/storage/public:/app/storage/app/public
+      - /srv/paymenter/themes:/app/themes
+      - /srv/paymenter/extensions:/app/extensions
+    environment:
+      APP_URL: "https://${BILLING_DOMAIN}"
+      APP_ENV: "production"
+      CACHE_STORE: "redis"
+      REDIS_HOST: "pay-cache"
+      DB_CONNECTION: "mariadb"
+      DB_HOST: "pay-database"
+      DB_PORT: "3306"
+      DB_PASSWORD: *pay-db-password
+      PAYMENTER_SKIP_DEFAULT: "false"
+
+networks:
+  # Custom subnet so this compose network doesn't collide with the docker
+  # networks Wings creates for game server containers on this same host.
+  default:
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

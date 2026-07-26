@@ -1,0 +1,11 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$PANEL_DOMAIN} {
+	reverse_proxy panel:80
+}
+
+{$BILLING_DOMAIN} {
+	reverse_proxy paymenter:80
+}
