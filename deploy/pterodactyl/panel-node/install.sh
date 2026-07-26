@@ -21,6 +21,20 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+# Docker cannot run in the Hetzner rescue system, and anything installed
+# there is lost on reboot - catch that before wasting the user's time.
+if [[ "$(hostname)" == "rescue" || -f /etc/hetzner-rescue ]]; then
+  cat >&2 <<'EOF'
+ERROR: This is the Hetzner RESCUE system (a temporary OS in memory), not
+your real server. Installing here will not work and will not survive a
+reboot. To fix:
+  1. On the Hetzner Cloud website: your server -> Rescue tab -> disable rescue
+  2. Run: reboot   (then reconnect after ~1 minute)
+  3. Check the prompt/hostname no longer says "rescue", then re-run this.
+EOF
+  exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
