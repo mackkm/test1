@@ -12,6 +12,12 @@ TIMEZONE=${TIMEZONE:-UTC}
 
 step "Base system preparation ($(os_id) $(os_codename))"
 
+# On a freshly booted cloud image these timers fire during our install and hold
+# the dpkg lock for minutes at a time. Stopping (not disabling) them keeps the
+# bootstrap moving; they return on the next reboot.
+systemctl stop apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+systemctl stop unattended-upgrades.service 2>/dev/null || true
+
 apt_refresh
 apt_install \
     ca-certificates curl gnupg tar unzip git jq \

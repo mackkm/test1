@@ -106,6 +106,12 @@ for f in d["firewalls"]:
 # Rule sets are declared as JSON so the API payload stays readable.
 firewall_rules_node() {
     local range="${GAME_PORT_RANGE/-/-}"
+    local status_rule=""
+    if [[ -n ${BOOTSTRAP_STATUS_PORT:-} ]]; then
+        # Temporary: opened only while BOOTSTRAP_STATUS_PORT is set in config.env.
+        status_rule=",
+  {\"direction\":\"in\",\"protocol\":\"tcp\",\"port\":\"${BOOTSTRAP_STATUS_PORT}\",\"source_ips\":[\"0.0.0.0/0\",\"::/0\"],\"description\":\"bootstrap status (temporary)\"}"
+    fi
     cat <<JSON
 [
   {"direction":"in","protocol":"tcp","port":"22","source_ips":["0.0.0.0/0","::/0"],"description":"ssh"},
@@ -116,7 +122,7 @@ firewall_rules_node() {
   {"direction":"in","protocol":"tcp","port":"8081","source_ips":["0.0.0.0/0","::/0"],"description":"billing (bare-IP fallback port)"},
   {"direction":"in","protocol":"tcp","port":"${range}","source_ips":["0.0.0.0/0","::/0"],"description":"game servers tcp"},
   {"direction":"in","protocol":"udp","port":"${range}","source_ips":["0.0.0.0/0","::/0"],"description":"game servers udp"},
-  {"direction":"in","protocol":"icmp","source_ips":["0.0.0.0/0","::/0"],"description":"icmp"}
+  {"direction":"in","protocol":"icmp","source_ips":["0.0.0.0/0","::/0"],"description":"icmp"}${status_rule}
 ]
 JSON
 }
@@ -212,6 +218,31 @@ ${rendered_config}
       chmod +x scripts/*.sh
       set -a; . ./config.env; set +a
       export HOST_ROLE=panel
+
+      # Optional progress endpoint. Provisioning happens with no inbound SSH, so
+      # without this a stalled install is invisible. Serves only the log file,
+      # and closes itself shortly after a successful run.
+      STATUS_PORT="\${BOOTSTRAP_STATUS_PORT:-}"
+      if [ -n "\$STATUS_PORT" ]; then
+        mkdir -p /run/ptero-status
+        exec > >(tee -a /run/ptero-status/bootstrap.log) 2>&1
+        python3 -m http.server "\$STATUS_PORT" --bind 0.0.0.0 \\
+          --directory /run/ptero-status >/dev/null 2>&1 &
+        STATUS_PID=\$!
+        finish() {
+          rc=\$?
+          echo "=== bootstrap finished with exit code \${rc} ==="
+          if [ "\$rc" -eq 0 ]; then
+            sleep 180
+            kill "\$STATUS_PID" 2>/dev/null || true
+            rm -rf /run/ptero-status
+          else
+            echo "=== leaving the status port open so the failure can be read ==="
+          fi
+        }
+        trap finish EXIT
+      fi
+
       bash scripts/10-common.sh
       bash scripts/30-panel.sh
       if [ "\${INSTALL_BILLING:-true}" = "true" ]; then bash scripts/40-billing.sh; fi

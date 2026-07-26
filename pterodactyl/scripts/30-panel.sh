@@ -67,6 +67,17 @@ apt_install \
 
 systemctl enable --now mariadb redis-server "php${PHP_VER}-fpm" nginx
 
+# MariaDB accepts systemd's "started" well before it accepts connections, and
+# the very next thing this script does is run SQL.
+step "Waiting for MariaDB to accept connections"
+for _ in $(seq 1 60); do
+    mysqladmin --protocol=socket -u root ping >/dev/null 2>&1 && break
+    sleep 2
+done
+mysqladmin --protocol=socket -u root ping >/dev/null 2>&1 \
+    || die "MariaDB did not become ready within 120s"
+log "MariaDB is ready"
+
 if ! command -v composer >/dev/null 2>&1; then
     step "Installing Composer"
     retry 3 bash -c 'curl -fsSL https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer'
