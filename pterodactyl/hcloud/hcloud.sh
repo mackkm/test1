@@ -243,7 +243,10 @@ ${rendered_config}
           echo "=== bootstrap finished with exit code \${rc} ==="
           sleep 8
           if [ "\$rc" -eq 0 ]; then
+            # Wait for the copier to actually die first, or it rewrites the log
+            # immediately after the removal and leaves it published anyway.
             kill "\$PUBLISH_PID" 2>/dev/null || true
+            wait "\$PUBLISH_PID" 2>/dev/null || true
             rm -f /var/www/html/bootstrap.log /var/www/html/cloud-init.log \\
                   /var/www/pterodactyl/public/bootstrap.log \\
                   /var/www/pterodactyl/public/cloud-init.log

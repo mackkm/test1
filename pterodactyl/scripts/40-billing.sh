@@ -267,5 +267,13 @@ if [[ -n ${LETSENCRYPT_EMAIL:-} ]]; then
 fi
 
 log "billing installation complete: ${BILLING_SCHEME}://${BILLING_FQDN}:${BILLING_PORT}"
+# PANEL_FQDN may still be the literal 'auto' sentinel here, since the panel
+# resolves it in its own process. Fall back to this host, which is where the
+# panel lives in the combined layout.
+if [[ -z ${PANEL_FQDN:-} || ${PANEL_FQDN} == auto ]]; then
+    panel_ref="${BILLING_SCHEME}://${BILLING_FQDN}"
+else
+    panel_ref="https://${PANEL_FQDN}"
+fi
 log "Next: in the Paymenter admin area add a Pterodactyl server integration"
-log "pointing at https://${PANEL_FQDN:-your-panel} with a Panel application API key."
+log "pointing at ${panel_ref} with a Panel application API key."
