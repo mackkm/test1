@@ -107,10 +107,11 @@ set_env DB_PORT       3306
 set_env DB_DATABASE   "$BILLING_DB"
 set_env DB_USERNAME   "$BILLING_DB_USER"
 set_env DB_PASSWORD   "$BILLING_DB_PASS"
-set_env CACHE_DRIVER  redis
-set_env SESSION_DRIVER redis
-set_env QUEUE_CONNECTION redis
-set_env REDIS_HOST    127.0.0.1
+# Deliberately not forcing redis drivers here. Paymenter's config passes
+# REDIS_PORT through as a string, and phpredis on PHP 8.3 rejects it with
+# "Redis::connect(): Argument #2 ($port) must be of type int, string given",
+# which breaks the very first artisan command. Its shipped defaults work, and
+# redis-server is installed and available if you want to opt in by hand.
 
 if [[ $FRESH_INSTALL == yes ]]; then
     php artisan key:generate --force
