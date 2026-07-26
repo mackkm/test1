@@ -46,54 +46,49 @@ takes payment and provisions them automatically.
 
 ## Before you start
 
-Create these DNS A records first (TLS issuance depends on them):
-
-| Record | Points at |
-|---|---|
-| `panel.example.com` | VM A public IP |
-| `billing.example.com` | VM A public IP |
-| `node-a.example.com` | VM A public IP |
-| `node-b.example.com` | VM B public IP |
-| `node-c.example.com` | VM C public IP |
-
-Also decide your allocation port range up front (default `25565-25665`).
-All VMs: Ubuntu 22.04/24.04 or Debian 11/12, root/sudo access.
+- All VMs: Ubuntu 22.04/24.04 or Debian 11/12, root/sudo access.
+- **No domain required**: by default everything uses free
+  [sslip.io](https://sslip.io) hostnames derived from each VM's IP (e.g.
+  `panel-65-108-1-2.sslip.io`) — zero DNS setup, and Let's Encrypt works.
+  To use a real domain instead, create A records for
+  `panel.` / `billing.` / `node-a.` → VM A, `node-b.` → VM B,
+  `node-c.` → VM C, and pass the `*_DOMAIN`/`NODE_FQDN` env vars shown in
+  the script headers instead of `AUTO_SSLIP`.
+- Default allocation port range: `25565-25665` (override with `GAME_PORTS`).
 
 ## Setup order
 
-Every step is a copy-paste block; the install scripts are non-interactive
-when their inputs are passed as env vars (and prompt for anything missing).
+Three paste blocks and one browser step; nothing to edit.
 
-1. **VM A — panel stack** (edit the four values, then paste):
+1. **VM A — panel stack**:
    ```sh
    sudo apt-get update && sudo apt-get install -y git
    git clone https://github.com/mackkm/test1.git
    cd test1/deploy/pterodactyl/panel-node
-   sudo PANEL_DOMAIN=panel.example.com \
-        BILLING_DOMAIN=billing.example.com \
-        NODE_DOMAIN=node-a.example.com \
-        ACME_EMAIL=you@example.com \
-        ./install.sh
+   sudo AUTO_SSLIP=1 ACME_EMAIL=you@example.com ./install.sh
    ```
    It prints the panel URL and generated admin login when done.
 
-2. **Create an Application API key**: log in to the Panel, go to
-   `https://panel.example.com/admin/api/new`, tick read/write on all
-   resources, create.
+2. **Create an Application API key**: log in to the Panel at the printed
+   URL, go to `<panel-url>/admin/api/new`, tick read/write on all
+   resources, create. You'll get a `ptla_...` key.
 
-3. **Provision all nodes** (from VM A or any machine with python3):
+3. **Register every VM as a game node** — the panel install's output
+   prints these blocks with the URLs already filled in. On VM A:
    ```sh
-   cd test1/deploy/pterodactyl
-   PANEL_URL=https://panel.example.com APP_API_KEY=ptla_... \
-   NODE_A_FQDN=node-a.example.com NODE_A_IP=<VM-A-IP> \
-   NODE_B_FQDN=node-b.example.com NODE_B_IP=<VM-B-IP> \
-   NODE_C_FQDN=node-c.example.com NODE_C_IP=<VM-C-IP> \
-   ACME_EMAIL=you@example.com \
-   ./provision.py
+   cd ../wings-node
+   sudo CO_LOCATED=1 PANEL_URL=<panel-url> APP_API_KEY=ptla_... ./install.sh
    ```
-   It creates the location/nodes/allocations and prints one paste block per
-   VM (including VM A's own Wings) with the node's config embedded — run
-   each block on its VM and the node comes up green in the Panel.
+   On each other VM:
+   ```sh
+   sudo apt-get update && sudo apt-get install -y git
+   git clone https://github.com/mackkm/test1.git
+   cd test1/deploy/pterodactyl/wings-node
+   sudo PANEL_URL=<panel-url> APP_API_KEY=ptla_... ./install.sh
+   ```
+   Each VM detects its own IP, gets a TLS cert, registers itself as a node
+   with allocations via the Panel API, writes its Wings config, and starts —
+   the node shows green/online in the Panel when the block finishes.
 
 4. **In the Panel admin**, import eggs (game templates) instead of writing
    your own: https://github.com/pelican-eggs/eggs has Minecraft

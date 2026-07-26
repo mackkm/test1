@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
 # Bootstraps this VM as a Pterodactyl Wings node (runs the actual game
-# server containers).
+# server containers) and - given a Panel API key - registers itself as a
+# node in the Panel and starts, with no other input:
 #
-# Standalone node (VM B / VM C) - gets its own Let's Encrypt cert, since
-# customer browsers connect straight to the daemon over wss://
-#   sudo NODE_FQDN=node-b.example.com \
-#        ACME_EMAIL=you@example.com \
-#        GAME_PORTS=25565:25665 \
-#        ./install.sh
+#   sudo PANEL_URL=https://panel-... APP_API_KEY=ptla_... ./install.sh
 #
-# Co-located node (the Panel VM, where Caddy already terminates TLS):
-#   sudo CO_LOCATED=1 GAME_PORTS=25565:25665 ./install.sh
+# On the Panel VM itself (Caddy already terminates TLS there), add CO_LOCATED=1:
 #
-# Optional (either mode): WINGS_CONFIG_B64=<base64 of config.yml> writes
-# /etc/pterodactyl/config.yml and starts Wings immediately - produced by
-# ../provision.py so the whole node comes up from a single paste. Without
-# it, the script stops before starting Wings and tells you how to add the
-# config from the Panel by hand.
+#   sudo CO_LOCATED=1 PANEL_URL=... APP_API_KEY=ptla_... ./install.sh
 #
-# Any missing var is prompted for. Run as root on Ubuntu 22.04/24.04 or
-# Debian 11/12.
+# The VM detects its own public IP; its hostname defaults to
+# node-<ip-dashes>.sslip.io (override with NODE_FQDN=... if you use a real
+# domain - DNS must already point here). Optional: GAME_PORTS (default
+# 25565:25665), ACME_EMAIL (for Let's Encrypt notices), NODE_RAM_MB /
+# NODE_DISK_MB (how much of this VM the Panel may allocate).
+#
+# Without an API key you can instead pass WINGS_CONFIG_B64=<base64 of
+# config.yml> (produced by ../provision.py fleet mode), or run with nothing
+# and finish by pasting the config from the Panel UI manually.
+#
+# Run as root on Ubuntu 22.04/24.04 or Debian 11/12.
 set -euo pipefail
 
 if [[ $EUID -ne 0 ]]; then
@@ -27,21 +27,19 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CO_LOCATED=${CO_LOCATED:-0}
-
-ask() { # ask VAR "prompt" - prompt only if $VAR is unset/empty
-  local var=$1 prompt=$2
-  if [[ -z "${!var:-}" ]]; then
-    read -rp "$prompt" "${var?}"
-  fi
-}
-
-if [[ "$CO_LOCATED" != "1" ]]; then
-  ask NODE_FQDN "This node's domain (e.g. node-b.example.com, DNS already pointed here): "
-  ask ACME_EMAIL "Email for Let's Encrypt renewal notices: "
-fi
-ask GAME_PORTS "Port range for game server allocations, e.g. 25565:25665: "
+GAME_PORTS=${GAME_PORTS:-25565:25665}
 GAME_PORTS=${GAME_PORTS//-/:}   # accept 25565-25665 too
+
+PUBLIC_IP=${NODE_IP:-$(curl -4fsS https://api.ipify.org || curl -4fsS https://ifconfig.me)}
+DASHED_IP=${PUBLIC_IP//./-}
+if [[ "$CO_LOCATED" == "1" ]]; then
+  NODE_FQDN=${NODE_FQDN:-node-a-${DASHED_IP}.sslip.io}
+else
+  NODE_FQDN=${NODE_FQDN:-node-${DASHED_IP}.sslip.io}
+fi
+echo "==> This node: ${NODE_FQDN} (${PUBLIC_IP})"
 
 echo "==> Installing Docker Engine..."
 if ! command -v docker &>/dev/null; then
@@ -71,8 +69,13 @@ if [[ "$CO_LOCATED" != "1" ]]; then
   echo "==> Obtaining TLS certificate for ${NODE_FQDN}..."
   apt-get install -y -qq certbot >/dev/null
   if [[ ! -d "/etc/letsencrypt/live/${NODE_FQDN}" ]]; then
-    certbot certonly --standalone -d "${NODE_FQDN}" -m "${ACME_EMAIL}" \
-      --agree-tos --non-interactive
+    if [[ -n "${ACME_EMAIL:-}" ]]; then
+      certbot certonly --standalone -d "${NODE_FQDN}" -m "${ACME_EMAIL}" \
+        --agree-tos --non-interactive
+    else
+      certbot certonly --standalone -d "${NODE_FQDN}" \
+        --register-unsafely-without-email --agree-tos --non-interactive
+    fi
   else
     echo "    certificate already present, skipping."
   fi
@@ -109,29 +112,37 @@ WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
 
-if [[ -n "${WINGS_CONFIG_B64:-}" ]]; then
-  echo "==> Writing /etc/pterodactyl/config.yml and starting Wings..."
-  echo "${WINGS_CONFIG_B64}" | base64 -d > /etc/pterodactyl/config.yml
-  chmod 600 /etc/pterodactyl/config.yml
+start_wings() {
   systemctl enable --now wings
   sleep 3
   if systemctl is-active --quiet wings; then
-    echo "==> Wings is running. The node should show online in the Panel."
+    echo "==> Wings is running. Node '${NODE_FQDN}' should show online in the Panel."
   else
     echo "==> Wings failed to start - check: journalctl -u wings -n 50" >&2
     exit 1
   fi
+}
+
+if [[ -n "${APP_API_KEY:-}" && -n "${PANEL_URL:-}" ]]; then
+  echo "==> Registering this VM as a node in the Panel..."
+  SELF=1 NODE_IP="${PUBLIC_IP}" NODE_FQDN="${NODE_FQDN}" \
+    CO_LOCATED="${CO_LOCATED}" GAME_PORTS="${GAME_PORTS//:/-}" \
+    PANEL_URL="${PANEL_URL}" APP_API_KEY="${APP_API_KEY}" \
+    python3 "${SCRIPT_DIR}/../provision.py"
+  start_wings
+elif [[ -n "${WINGS_CONFIG_B64:-}" ]]; then
+  echo "==> Writing /etc/pterodactyl/config.yml from WINGS_CONFIG_B64..."
+  echo "${WINGS_CONFIG_B64}" | base64 -d > /etc/pterodactyl/config.yml
+  chmod 600 /etc/pterodactyl/config.yml
+  start_wings
 else
   cat <<EOF
 
 ==> Docker, firewall, TLS, and the Wings binary/service are installed.
-    Wings is NOT started yet - it needs its config from the Panel:
-
-    1. In the Panel admin, create a Node for this machine, then open the
-       Node's "Configuration" tab, copy the block, and save it as
-       /etc/pterodactyl/config.yml on this VM. (Or use ../provision.py,
-       which does the whole thing and hands you a one-paste command.)
-
-    2. systemctl enable --now wings && systemctl status wings
+    Wings is NOT started yet - it needs its config from the Panel. Either
+    re-run with PANEL_URL=... APP_API_KEY=ptla_... (self-registers,
+    recommended), or create the node in the Panel UI, paste its
+    Configuration tab into /etc/pterodactyl/config.yml, and run:
+      systemctl enable --now wings
 EOF
 fi

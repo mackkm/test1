@@ -31,6 +31,18 @@ ask() { # ask VAR "prompt" - prompt only if $VAR is unset/empty
   fi
 }
 
+# AUTO_SSLIP=1: no domain needed - derive hostnames from this VM's public IP
+# via sslip.io (e.g. panel-65-108-1-2.sslip.io), which resolves automatically.
+if [[ "${AUTO_SSLIP:-0}" == "1" ]]; then
+  PUBLIC_IP=$(curl -4fsS https://api.ipify.org || curl -4fsS https://ifconfig.me)
+  DASHED_IP=${PUBLIC_IP//./-}
+  PANEL_DOMAIN=${PANEL_DOMAIN:-panel-${DASHED_IP}.sslip.io}
+  BILLING_DOMAIN=${BILLING_DOMAIN:-billing-${DASHED_IP}.sslip.io}
+  NODE_DOMAIN=${NODE_DOMAIN:-node-a-${DASHED_IP}.sslip.io}
+  echo "==> Using sslip.io hostnames for ${PUBLIC_IP}:"
+  echo "    ${PANEL_DOMAIN} / ${BILLING_DOMAIN} / ${NODE_DOMAIN}"
+fi
+
 ask PANEL_DOMAIN "Domain for the Panel (e.g. panel.example.com): "
 ask BILLING_DOMAIN "Domain for the billing storefront (e.g. billing.example.com): "
 ask NODE_DOMAIN "Domain for this VM's own game node (e.g. node-a.example.com): "
@@ -119,12 +131,27 @@ cat <<EOF
 
  1. Log in to the Panel and create an Application API key:
       https://${PANEL_DOMAIN}/admin/api/new
-    (tick read/write for all resources). Use it with
-    ../provision.py to create the nodes for all your VMs.
+    (tick read/write for all resources)
 
- 2. Open https://${BILLING_DOMAIN} to run Paymenter's first-run
-    setup wizard, then connect it to the Panel with another
-    Application API key.
+ 2. Register THIS VM as a game node - run here, with your new key:
+
+      cd "$(cd "${SCRIPT_DIR}/../wings-node" && pwd)"
+      sudo CO_LOCATED=1 PANEL_URL=https://${PANEL_DOMAIN} \\
+           APP_API_KEY=ptla_PASTE_YOUR_KEY ./install.sh
+
+ 3. Register EVERY OTHER VM - run this same block on each:
+
+      sudo apt-get update && sudo apt-get install -y git
+      git clone --branch claude/pterodactyl-vm-rental-lxun3e https://github.com/mackkm/test1.git
+      cd test1/deploy/pterodactyl/wings-node
+      sudo PANEL_URL=https://${PANEL_DOMAIN} \\
+           APP_API_KEY=ptla_PASTE_YOUR_KEY ./install.sh
+
+    Each VM finds its own IP, gets a TLS cert, registers itself as
+    a node in the Panel, and starts Wings - no editing needed.
+
+ 4. Open https://${BILLING_DOMAIN} for Paymenter's first-run
+    setup wizard (billing storefront).
 
  See ../README.md for the full walkthrough.
 ==============================================================

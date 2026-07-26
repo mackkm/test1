@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
 """Provision Pterodactyl nodes + allocations via the Panel's Application API.
 
-Runs anywhere with python3 and HTTPS access to the panel (the panel VM, your
-laptop, ...). Creates a location, one node per VM, and their game-port
-allocations, then prints a single-paste install command per VM with that
-node's Wings config embedded.
+Two modes:
 
-Required env vars:
+SELF mode (SELF=1) - run ON a wings VM (wings-node/install.sh does this for
+you): detects the VM's own public IP, registers this machine as a node with
+an sslip.io hostname (or NODE_FQDN), creates its allocations, fetches its
+Wings config, and writes it to WRITE_CONFIG (default
+/etc/pterodactyl/config.yml). Set CO_LOCATED=1 on the panel VM itself.
+  Required: PANEL_URL, APP_API_KEY
+
+Fleet mode (default) - run anywhere with HTTPS access to the panel: creates
+a location, one node per VM, and allocations, then prints a single-paste
+install command per VM with that node's Wings config embedded.
+
+Required env vars (fleet mode):
   PANEL_URL      e.g. https://panel.example.com
   APP_API_KEY    Application API key (ptla_...), all read/write permissions
   NODE_A_FQDN    node-a.example.com   (the Panel VM itself, behind Caddy)
@@ -124,7 +132,43 @@ def wings_config(node_id, behind_proxy):
     return json.dumps(cfg, indent=2)
 
 
+def own_public_ip():
+    for url in ("https://api.ipify.org", "https://ifconfig.me/ip"):
+        try:
+            with urllib.request.urlopen(url, timeout=15) as resp:
+                ip = resp.read().decode().strip()
+                if ip:
+                    return ip
+        except OSError:
+            continue
+    sys.exit("Could not determine this VM's public IP - set NODE_IP manually.")
+
+
+def self_register():
+    co_located = os.environ.get("CO_LOCATED", "0") == "1"
+    ip = os.environ.get("NODE_IP") or own_public_ip()
+    dashed = ip.replace(".", "-")
+    default_fqdn = f"node-{'a-' if co_located else ''}{dashed}.sslip.io"
+    fqdn = os.environ.get("NODE_FQDN", default_fqdn)
+    name = fqdn.split(".")[0]
+    write_path = os.environ.get("WRITE_CONFIG", "/etc/pterodactyl/config.yml")
+
+    print(f"==> Registering this VM ({ip}) as node '{name}' ({fqdn})")
+    location_id = find_or_create_location()
+    node_id = find_or_create_node(name, fqdn, location_id, co_located)
+    ensure_allocations(node_id, ip)
+    cfg = wings_config(node_id, co_located)
+    with open(write_path, "w") as f:
+        f.write(cfg)
+    os.chmod(write_path, 0o600)
+    print(f"==> Wrote {write_path}")
+
+
 def main():
+    if os.environ.get("SELF", "0") == "1":
+        self_register()
+        return
+
     nodes = []
     for key, behind_proxy in (("A", True), ("B", False), ("C", False)):
         fqdn = os.environ.get(f"NODE_{key}_FQDN")
