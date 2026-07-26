@@ -212,6 +212,8 @@ ${rendered_config}
       chmod +x scripts/*.sh
       set -a; . ./config.env; set +a
       export HOST_ROLE=panel
+      # cloud-init gives runcmd no HOME; Composer refuses to run without one.
+      export HOME=/root
 
       # Optional progress publishing. Provisioning happens with no inbound SSH,
       # so a stalled install is otherwise invisible. The log is copied into the

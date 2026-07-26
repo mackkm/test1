@@ -22,6 +22,13 @@ if [[ -f "$PTERO_LIB_DIR/config.env" ]]; then
     set +a
 fi
 
+# cloud-init's runcmd executes with no HOME, and Composer hard-fails with
+# "The HOME or COMPOSER_HOME environment variable must be set" rather than
+# falling back. The upstream Pterodactyl instructions assume an interactive root
+# shell, so this only bites unattended installs.
+export HOME="${HOME:-/root}"
+export COMPOSER_HOME="${COMPOSER_HOME:-${HOME}/.composer}"
+
 if [[ -t 1 ]]; then
     C_BOLD=$'\033[1m'; C_RED=$'\033[31m'; C_YEL=$'\033[33m'
     C_GRN=$'\033[32m'; C_OFF=$'\033[0m'
