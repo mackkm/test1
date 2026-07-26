@@ -54,8 +54,28 @@ for step 3.
   | `node1/2/3.example.com` | each node | Wings needs its own cert — the browser talks to it directly for console and file transfers |
 
   Wings will not connect to a Panel over an invalid certificate, and the
-  browser will not open a websocket to a node over one either. Plain IPs work
-  only if you set `NODE_SCHEME=http`, which disables the web console over HTTPS.
+  browser will not open a websocket to a node over one either.
+
+### Running without a domain
+
+If you have no DNS yet, set `PANEL_FQDN=auto` and `BILLING_FQDN=auto`. Each host
+then resolves its own public IP at install time and serves over plain HTTP:
+
+| Service | Address |
+|---|---|
+| Panel | `http://<panel-ip>/` |
+| Billing | `http://<panel-ip>:8081/` (port 80 is taken by the panel) |
+
+TLS is skipped automatically — Let's Encrypt will not issue a certificate for a
+bare IP. Set `NODE_SCHEME=http` to match. This is fine for getting the stack
+running and for admin access, but **move to real hostnames before selling
+anything**: without TLS, panel logins, billing sessions and SFTP credentials all
+cross the network in cleartext.
+
+To switch over later, point the DNS records at the hosts, set the real FQDNs and
+`LETSENCRYPT_EMAIL` in `config.env`, flip `NODE_SCHEME=https`, and re-run
+`./deploy.sh panel` — the scripts are idempotent and will request certificates
+and rewrite the vhosts in place.
 
 ## Usage
 
