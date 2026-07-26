@@ -16,7 +16,25 @@
 
 require_root
 require_debian_family
-need_var BILLING_FQDN BILLING_ADMIN_EMAIL
+need_var BILLING_ADMIN_EMAIL
+
+# Same public-IP fallback as the panel. When both apps land on one bare IP they
+# cannot be told apart by server_name, so billing moves to its own port.
+BILLING_PORT=${BILLING_PORT:-80}
+if [[ -z ${BILLING_FQDN:-} || ${BILLING_FQDN} == auto ]]; then
+    BILLING_FQDN="$(detect_public_ip)"
+    [[ -n $BILLING_FQDN ]] || die "could not determine the public IP; set BILLING_FQDN"
+    warn "BILLING_FQDN not set — falling back to ${BILLING_FQDN}"
+fi
+
+if [[ $BILLING_FQDN =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
+    BILLING_SCHEME=http
+    LETSENCRYPT_EMAIL=""
+    BILLING_PORT=${BILLING_PORT_IP_FALLBACK:-8081}
+    warn "billing address is a bare IP — serving on port ${BILLING_PORT} without TLS."
+else
+    BILLING_SCHEME=${BILLING_SCHEME:-https}
+fi
 
 BILLING_DIR=/var/www/paymenter
 BILLING_DB=${BILLING_DB:-paymenter}
@@ -80,7 +98,7 @@ set_env() {
     fi
 }
 
-set_env APP_URL       "https://${BILLING_FQDN}"
+set_env APP_URL       "${BILLING_SCHEME}://${BILLING_FQDN}:${BILLING_PORT}"
 set_env APP_ENV       production
 set_env APP_DEBUG     false
 set_env DB_CONNECTION mysql
@@ -124,7 +142,7 @@ if [[ $FRESH_INSTALL == yes ]]; then
         warn "Create the billing admin by hand:"
         warn "  cd ${BILLING_DIR} && php artisan app:user:create"
     else
-        save_cred "billing url        : https://${BILLING_FQDN}"
+        save_cred "billing url        : ${BILLING_SCHEME}://${BILLING_FQDN}:${BILLING_PORT}"
         save_cred "billing admin email: ${BILLING_ADMIN_EMAIL}"
         save_cred "billing admin pass : ${BILLING_ADMIN_PASSWORD}"
         save_cred "billing db user/pass: ${BILLING_DB_USER} / ${BILLING_DB_PASS}"
@@ -163,8 +181,8 @@ step "Configuring nginx for ${BILLING_FQDN}"
 
 write_file /etc/nginx/sites-available/paymenter.conf 0644 <<NGINX
 server {
-    listen 80;
-    listen [::]:80;
+    listen ${BILLING_PORT};
+    listen [::]:${BILLING_PORT};
     server_name ${BILLING_FQDN};
     root ${BILLING_DIR}/public;
     index index.php;
@@ -221,6 +239,6 @@ if [[ -n ${LETSENCRYPT_EMAIL:-} ]]; then
     fi
 fi
 
-log "billing installation complete: https://${BILLING_FQDN}"
+log "billing installation complete: ${BILLING_SCHEME}://${BILLING_FQDN}:${BILLING_PORT}"
 log "Next: in the Paymenter admin area add a Pterodactyl server integration"
 log "pointing at https://${PANEL_FQDN:-your-panel} with a Panel application API key."

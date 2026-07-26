@@ -11,7 +11,26 @@
 
 require_root
 require_debian_family
-need_var PANEL_FQDN PANEL_ADMIN_EMAIL
+need_var PANEL_ADMIN_EMAIL
+
+# With no DNS name configured, fall back to this host's public IP so the panel
+# is still reachable. The IP is only knowable on the host itself, which is why
+# this is resolved here rather than in config.env.
+if [[ -z ${PANEL_FQDN:-} || ${PANEL_FQDN} == auto ]]; then
+    PANEL_FQDN="$(detect_public_ip)"
+    [[ -n $PANEL_FQDN ]] || die "could not determine the public IP; set PANEL_FQDN"
+    warn "PANEL_FQDN not set — falling back to ${PANEL_FQDN}"
+fi
+
+# Let's Encrypt will not issue for a bare IP, so force plain HTTP in that case.
+if [[ $PANEL_FQDN =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
+    PANEL_SCHEME=http
+    LETSENCRYPT_EMAIL=""
+    warn "panel address is a bare IP — TLS is skipped."
+    warn "Point a DNS record here, set PANEL_FQDN + LETSENCRYPT_EMAIL, and re-run for HTTPS."
+else
+    PANEL_SCHEME=${PANEL_SCHEME:-https}
+fi
 
 PANEL_DIR=/var/www/pterodactyl
 PANEL_DB=${PANEL_DB:-panel}
@@ -100,7 +119,7 @@ step "Configuring the panel environment"
 
 php artisan p:environment:setup \
     --author="$PANEL_ADMIN_EMAIL" \
-    --url="https://${PANEL_FQDN}" \
+    --url="${PANEL_SCHEME}://${PANEL_FQDN}" \
     --timezone="$TIMEZONE" \
     --cache=redis --session=redis --queue=redis \
     --redis-host=127.0.0.1 --redis-port=6379 --redis-pass= \
@@ -125,7 +144,7 @@ if [[ $FRESH_INSTALL == yes ]]; then
         --name-first=Server --name-last=Admin \
         --password="$PANEL_ADMIN_PASSWORD" \
         --admin=1 --no-interaction
-    save_cred "panel url          : https://${PANEL_FQDN}"
+    save_cred "panel url          : ${PANEL_SCHEME}://${PANEL_FQDN}"
     save_cred "panel admin user   : ${PANEL_ADMIN_USER}"
     save_cred "panel admin email  : ${PANEL_ADMIN_EMAIL}"
     save_cred "panel admin pass   : ${PANEL_ADMIN_PASSWORD}"
@@ -233,5 +252,5 @@ else
     warn "LETSENCRYPT_EMAIL not set — skipping TLS. The panel is HTTP-only."
 fi
 
-log "panel installation complete: https://${PANEL_FQDN}"
+log "panel installation complete: ${PANEL_SCHEME}://${PANEL_FQDN}"
 log "credentials recorded in ${CRED_FILE}"

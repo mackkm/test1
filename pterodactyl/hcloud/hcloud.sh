@@ -112,7 +112,8 @@ firewall_rules_node() {
   {"direction":"in","protocol":"tcp","port":"8080","source_ips":["0.0.0.0/0","::/0"],"description":"wings api"},
   {"direction":"in","protocol":"tcp","port":"2022","source_ips":["0.0.0.0/0","::/0"],"description":"wings sftp"},
   {"direction":"in","protocol":"tcp","port":"443","source_ips":["0.0.0.0/0","::/0"],"description":"wings tls / certbot"},
-  {"direction":"in","protocol":"tcp","port":"80","source_ips":["0.0.0.0/0","::/0"],"description":"certbot http-01"},
+  {"direction":"in","protocol":"tcp","port":"80","source_ips":["0.0.0.0/0","::/0"],"description":"panel http / certbot http-01"},
+  {"direction":"in","protocol":"tcp","port":"8081","source_ips":["0.0.0.0/0","::/0"],"description":"billing (bare-IP fallback port)"},
   {"direction":"in","protocol":"tcp","port":"${range}","source_ips":["0.0.0.0/0","::/0"],"description":"game servers tcp"},
   {"direction":"in","protocol":"udp","port":"${range}","source_ips":["0.0.0.0/0","::/0"],"description":"game servers udp"},
   {"direction":"in","protocol":"icmp","source_ips":["0.0.0.0/0","::/0"],"description":"icmp"}
@@ -150,9 +151,21 @@ print(json.dumps({"name": sys.argv[1], "rules": json.loads(sys.argv[2])}))' "$na
     fi
 
     step "Attaching firewall to servers"
+    # A Hetzner Cloud Firewall default-denies everything it does not name, so
+    # attaching it to an unrelated server silently blackholes that server's own
+    # services. Only fleet-labelled servers are touched unless '--all' is given.
     local ids
-    ids="$(api GET '/servers?per_page=50' | jqp 'print(" ".join(str(s["id"]) for s in d["servers"]))')"
-    [[ -n $ids ]] || { warn "no servers in this project"; return 0; }
+    if [[ ${1:-} == --all ]]; then
+        warn "--all: attaching to EVERY server in this project."
+        warn "Any port not in the rule list above will be blocked on those hosts."
+        ids="$(api GET '/servers?per_page=50' | jqp 'print(" ".join(str(s["id"]) for s in d["servers"]))')"
+    else
+        ids="$(api GET '/servers?per_page=50&label_selector=managed-by%3Dpterodactyl-kit' \
+            | jqp 'print(" ".join(str(s["id"]) for s in d["servers"]))')"
+        log "targeting servers labelled managed-by=pterodactyl-kit"
+        log "(pass --all to include pre-existing servers — read the warning first)"
+    fi
+    [[ -n $ids ]] || { warn "no matching servers in this project"; return 0; }
 
     local payload
     payload="$(python3 -c '
@@ -197,6 +210,7 @@ ${rendered_config}
       cp config.env scripts/config.env
       chmod 600 scripts/config.env
       chmod +x scripts/*.sh
+      set -a; . ./config.env; set +a
       export HOST_ROLE=panel
       bash scripts/10-common.sh
       bash scripts/30-panel.sh
@@ -306,7 +320,7 @@ cmd_bootstrap_log() {
 
 case "${1:-}" in
     list)          cmd_list ;;
-    firewall)      cmd_firewall ;;
+    firewall)      shift; cmd_firewall "$@" ;;
     create-panel)  cmd_create_panel ;;
     bootstrap-log) shift; cmd_bootstrap_log "$@" ;;
     *)
