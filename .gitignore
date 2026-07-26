@@ -3,3 +3,6 @@ auth.*.json
 .terraform*
 terraform.tfstate*
 .pocketclaw/
+
+# Pterodactyl deployment kit — holds secrets
+pterodactyl/config.env
