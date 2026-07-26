@@ -107,11 +107,25 @@ set_env DB_PORT       3306
 set_env DB_DATABASE   "$BILLING_DB"
 set_env DB_USERNAME   "$BILLING_DB_USER"
 set_env DB_PASSWORD   "$BILLING_DB_PASS"
-# Deliberately not forcing redis drivers here. Paymenter's config passes
-# REDIS_PORT through as a string, and phpredis on PHP 8.3 rejects it with
-# "Redis::connect(): Argument #2 ($port) must be of type int, string given",
-# which breaks the very first artisan command. Its shipped defaults work, and
-# redis-server is installed and available if you want to opt in by hand.
+# Paymenter's shipped defaults point at redis, and Laravel reads REDIS_PORT out
+# of .env as a string. phpredis on PHP 8.3 is strictly typed and rejects it:
+#   Redis::connect(): Argument #2 ($port) must be of type int, string given
+# which kills the first artisan command after composer. Two mitigations, because
+# either alone leaves a path to the same crash:
+#   1. cast the port where the config reads it, so redis works if anything uses it
+#   2. keep cache/session/queue off redis entirely, so nothing connects by default
+sed -i -E "s/env\('REDIS_PORT',[[:space:]]*'?6379'?\)/(int) env('REDIS_PORT', 6379)/g" \
+    config/database.php 2>/dev/null || true
+
+# Laravel 11 renamed CACHE_DRIVER to CACHE_STORE; set both so the override
+# applies regardless of which major version this release tracks.
+set_env CACHE_STORE      file
+set_env CACHE_DRIVER     file
+set_env SESSION_DRIVER   file
+set_env QUEUE_CONNECTION database
+
+# Recorded so a failed unattended run shows which drivers were actually in play.
+log "billing drivers: $(grep -hE '^(CACHE_STORE|CACHE_DRIVER|SESSION_DRIVER|QUEUE_CONNECTION|REDIS_CLIENT|REDIS_PORT)=' .env | tr '\n' ' ')"
 
 if [[ $FRESH_INSTALL == yes ]]; then
     php artisan key:generate --force
