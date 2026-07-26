@@ -1,6 +1,6 @@
-# Pterodactyl game server rental — 2-VM Hetzner setup
+# Pterodactyl game server rental — 3-VM Hetzner setup
 
-Turns your 2 Hetzner VMs into a small game-server hosting business:
+Turns your Hetzner VMs into a small game-server hosting business:
 [Pterodactyl](https://pterodactyl.io) manages the servers, [Paymenter](https://paymenter.org)
 takes payment and provisions them automatically.
 
@@ -14,89 +14,105 @@ takes payment and provisions them automatically.
                        +------+------+
                        |    VM A     |   Panel node
                        | Caddy (TLS) |
-                       |  -> Panel   |   panel.example.com  (admin + API)
+                       |  -> Panel   |   panel.example.com   (admin + API)
                        |  -> Paymenter|  billing.example.com (storefront)
-                       |  -> Wings   |   this VM is ALSO a game-server node
+                       |  -> Wings   |   node-a.example.com  (game node)
                        +------+------+
-                              | Wings API (8080, restricted to VM A/B only)
-                       +------+------+
-                       |    VM B     |   pure Wings node - game servers only
-                       +-------------+
+                              |  Panel <-> Wings API (HTTPS)
+                +-------------+-------------+
+                |                           |
+         +------+------+            +------+------+
+         |    VM B     |            |    VM C     |
+         |   Wings     |            |   Wings     |
+         | node-b.…    |            | node-c.…    |
+         +-------------+            +-------------+
 ```
 
 - **Panel** (`ghcr.io/pterodactyl/panel`) — admin web UI + API. Knows about
   nodes, users, servers; doesn't run any game server itself.
 - **Wings** — the daemon that actually runs game servers as Docker
   containers. Runs on *every* node, including VM A (co-located with the
-  Panel, per your setup).
+  Panel). Customer browsers talk to Wings directly (server console over
+  websockets), so every node needs a domain + TLS: VM A's Wings sits behind
+  Caddy, VM B/C get their own Let's Encrypt certs via certbot.
 - **Paymenter** — the storefront. Customers buy a plan, pay via Stripe/PayPal,
   and Paymenter calls the Panel's API to create/suspend/terminate their
   server automatically.
-- **Caddy** — reverse proxy in front of Panel + Paymenter, handling
-  automatic HTTPS for both domains so neither app needs its own cert.
+- **Caddy** — reverse proxy on VM A, automatic HTTPS for panel + billing +
+  the local Wings daemon.
+- **`provision.py`** — creates the location, nodes, and port allocations in
+  the Panel via its API and prints a single-paste install command per VM
+  with that node's Wings config embedded.
 
 ## Before you start
 
-- Two domains (or subdomains) pointed at VM A's IP: one for the panel, one
-  for billing, e.g. `panel.yourdomain.com` and `billing.yourdomain.com`.
-  DNS must resolve *before* running `install.sh` (Caddy needs it for the
-  Let's Encrypt challenge).
-- Both VMs on Ubuntu 22.04/24.04 or Debian 11/12, with root/sudo access.
-- Decide your allocation port range up front (e.g. `25565:25665` for a
-  Minecraft-focused setup) — you'll open this on both VMs and use it when
-  creating Nodes in the Panel.
+Create these DNS A records first (TLS issuance depends on them):
+
+| Record | Points at |
+|---|---|
+| `panel.example.com` | VM A public IP |
+| `billing.example.com` | VM A public IP |
+| `node-a.example.com` | VM A public IP |
+| `node-b.example.com` | VM B public IP |
+| `node-c.example.com` | VM C public IP |
+
+Also decide your allocation port range up front (default `25565-25665`).
+All VMs: Ubuntu 22.04/24.04 or Debian 11/12, root/sudo access.
 
 ## Setup order
 
-1. **VM A — Panel + billing + local Wings node**
-   ```sh
-   cd deploy/pterodactyl/panel-node
-   sudo ./install.sh
-   ```
-   Follow the printed next steps: create the admin user, log in, then
-   also run the Wings installer on this same VM so it can host servers too:
-   ```sh
-   cd ../wings-node
-   sudo ./install.sh
-   ```
+Every step is a copy-paste block; the install scripts are non-interactive
+when their inputs are passed as env vars (and prompt for anything missing).
 
-2. **VM B — pure Wings node**
+1. **VM A — panel stack** (edit the four values, then paste):
    ```sh
-   cd deploy/pterodactyl/wings-node
-   sudo ./install.sh
+   sudo apt-get update && sudo apt-get install -y git
+   git clone https://github.com/mackkm/test1.git
+   cd test1/deploy/pterodactyl/panel-node
+   sudo PANEL_DOMAIN=panel.example.com \
+        BILLING_DOMAIN=billing.example.com \
+        NODE_DOMAIN=node-a.example.com \
+        ACME_EMAIL=you@example.com \
+        ./install.sh
    ```
+   It prints the panel URL and generated admin login when done.
 
-3. **In the Panel admin** (`https://panel.yourdomain.com`):
-   - **Locations** → create one (e.g. "Hetzner - Falkenstein").
-   - **Nodes** → create one per VM, using each VM's public IP/FQDN and the
-     port range you opened. Set the co-located node's daemon address to
-     `127.0.0.1` if you'd rather not expose Wings' API on VM A publicly at
-     all (Panel and Wings are the same machine there).
-   - Open each Node's **Configuration** tab, paste the block into
-     `/etc/pterodactyl/config.yml` on the matching VM, then
-     `systemctl enable --now wings` (see `wings-node/install.sh` output).
-     The node goes green/"online" in the admin once Wings connects back.
-   - **Allocations** → add ports within your range for each node.
-   - **Nests/Eggs** → import ready-made eggs instead of writing your own:
-     the community egg repo at https://github.com/pelican-eggs/eggs has
-     Minecraft (Vanilla/Paper/Forge), Rust, ARK, Valheim, and dozens more —
-     Admin → Nests → Import Egg, paste the raw JSON URL.
-   - Create one test server yourself and confirm it starts, and that you
-     can reach it from a game client and over SFTP (port 2022), before
-     selling anything.
+2. **Create an Application API key**: log in to the Panel, go to
+   `https://panel.example.com/admin/api/new`, tick read/write on all
+   resources, create.
 
-4. **Paymenter** (`https://billing.yourdomain.com`):
+3. **Provision all nodes** (from VM A or any machine with python3):
+   ```sh
+   cd test1/deploy/pterodactyl
+   PANEL_URL=https://panel.example.com APP_API_KEY=ptla_... \
+   NODE_A_FQDN=node-a.example.com NODE_A_IP=<VM-A-IP> \
+   NODE_B_FQDN=node-b.example.com NODE_B_IP=<VM-B-IP> \
+   NODE_C_FQDN=node-c.example.com NODE_C_IP=<VM-C-IP> \
+   ACME_EMAIL=you@example.com \
+   ./provision.py
+   ```
+   It creates the location/nodes/allocations and prints one paste block per
+   VM (including VM A's own Wings) with the node's config embedded — run
+   each block on its VM and the node comes up green in the Panel.
+
+4. **In the Panel admin**, import eggs (game templates) instead of writing
+   your own: https://github.com/pelican-eggs/eggs has Minecraft
+   (Vanilla/Paper/Forge), Rust, ARK, Valheim, and dozens more —
+   Admin → Nests → Import Egg, paste the raw JSON URL. Then create one test
+   server yourself and confirm it starts and is reachable from a game
+   client and over SFTP (port 2022) before selling anything.
+
+5. **Paymenter** (`https://billing.example.com`):
    - Complete the first-run setup wizard (creates your admin account).
    - **Settings → Payment gateways** → connect Stripe and/or PayPal.
-   - **Settings → Servers/Pterodactyl** → add your Panel's URL and an
-     **Application API key** (Panel admin → Application API → create key;
-     give it server/user/node read+write permissions).
+   - **Settings → Servers/Pterodactyl** → add your Panel's URL and a second
+     Application API key.
    - **Products** → create one per plan (RAM/disk/CPU tier), mapped to the
      Nest/Egg you imported. This is what customers actually buy.
    - Do a full dry-run purchase yourself (test mode if using Stripe) to
      confirm payment → server auto-creation works end to end.
 
-## Security hardening (do this on both VMs)
+## Security hardening (do this on all VMs)
 
 - **SSH**: key-only auth (`PasswordAuthentication no` in
   `/etc/ssh/sshd_config`), and `fail2ban` (`apt install fail2ban`) against
@@ -104,8 +120,10 @@ takes payment and provisions them automatically.
 - **Unattended security updates**: `apt install unattended-upgrades` and
   enable it — you're now running internet-facing services you're
   responsible for patching.
-- **Firewall**: the install scripts already lock ufw down to only the ports
-  each role needs. Don't open anything else without a reason.
+- **Firewall**: the install scripts lock ufw down to only the ports each
+  role needs (Wings' 8080 stays public on B/C by design — customer consoles
+  connect to it; TLS + Panel-issued tokens protect it). Don't open anything
+  else without a reason.
 - **Backups**:
   - Panel: back up `/srv/pterodactyl/var/.env` (contains `APP_KEY` — losing
     it makes all encrypted panel data unrecoverable) and take regular
@@ -114,10 +132,11 @@ takes payment and provisions them automatically.
   - Customer game data: configure a remote backup destination (S3-compatible
     — Backblaze B2, Wasabi, etc.) in Wings/Panel so per-server backups
     survive a node dying, not just local disk.
-- **Don't oversell**: only allocate as much combined RAM/CPU/disk across all
-  servers on a node as that VM actually has. Pterodactyl won't stop you from
-  overselling, but Linux OOM-killing everyone's server when you do will cost
-  you more support tickets than the extra sales are worth.
+- **Don't oversell**: `provision.py` registers each node with 30 GB RAM /
+  550 GB disk allocatable (of 32/640) and 0% overallocation. Pterodactyl
+  would let you oversell past physical capacity, but Linux OOM-killing
+  everyone's server when you do costs more in support tickets than the
+  extra sales earn.
 
 ## Business & legal — read before taking real payments
 
@@ -154,10 +173,13 @@ takes payment and provisions them automatically.
   `APP_URL=https://...` are set (already in `docker-compose.yml`) — see
   https://pterodactyl.io/panel/1.0/additional_configuration.html if it
   persists after a restart (`docker compose restart panel`).
-- **Node stuck offline/red**: usually Wings can't be reached on port 8080
-  from the Panel, or `/etc/pterodactyl/config.yml` doesn't match what the
-  Panel generated. Check `journalctl -u wings -f` on the node and re-copy
-  the config from the Node's Configuration tab if in doubt.
+- **Node stuck offline/red**: check `journalctl -u wings -n 50` on the
+  node. Usual causes: `/etc/pterodactyl/config.yml` doesn't match what the
+  Panel generated (re-run the provision paste block), the cert failed to
+  issue (DNS not pointing at the VM yet), or port 8080 blocked.
+- **Console "connection lost" in the browser for servers on a node**: the
+  browser can't reach that node's daemon — usually the node's TLS cert or
+  its public 8080 (443 for node-a) being blocked.
 - **Caddy won't get a certificate**: DNS for that domain isn't pointing at
   the VM yet, or port 80/443 isn't reachable from the internet (check
   `ufw status`, and your Hetzner Cloud firewall if you also have one

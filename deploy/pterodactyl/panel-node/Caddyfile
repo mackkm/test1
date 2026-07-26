@@ -9,3 +9,10 @@
 {$BILLING_DOMAIN} {
 	reverse_proxy paymenter:80
 }
+
+# This VM's own Wings daemon (a host service, not a container) - reached at
+# the compose network's gateway IP. Terminating TLS here means Wings itself
+# runs plain HTTP behind the proxy ("behind_proxy" on the node in the Panel).
+{$NODE_DOMAIN} {
+	reverse_proxy 172.20.0.1:8080
+}

@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # Bootstraps this VM as the Pterodactyl Panel + Paymenter billing node:
-# Docker, firewall, generated secrets, then brings up the compose stack.
+# Docker, firewall, generated secrets, then brings up the compose stack and
+# creates the Panel admin user.
 #
-# Run as root on a fresh Ubuntu 22.04/24.04 (or Debian 11/12) Hetzner VM,
-# from inside this directory (deploy/pterodactyl/panel-node):
-#   sudo ./install.sh
+# Fully non-interactive when the inputs are passed as env vars:
+#   sudo PANEL_DOMAIN=panel.example.com \
+#        BILLING_DOMAIN=billing.example.com \
+#        NODE_DOMAIN=node-a.example.com \
+#        ACME_EMAIL=you@example.com \
+#        ./install.sh
+# Any var you omit is prompted for. Optional: ADMIN_EMAIL (defaults to
+# ACME_EMAIL), ADMIN_PASSWORD (defaults to a generated one, printed at the
+# end).
 #
-# Before running: point PANEL_DOMAIN and BILLING_DOMAIN's DNS A/AAAA records
-# at this VM's public IP - Caddy needs that to obtain TLS certificates.
+# DNS for all three domains must already point at this VM's public IP.
 set -euo pipefail
 
 if [[ $EUID -ne 0 ]]; then
@@ -18,26 +24,31 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+ask() { # ask VAR "prompt" - prompt only if $VAR is unset/empty
+  local var=$1 prompt=$2
+  if [[ -z "${!var:-}" ]]; then
+    read -rp "$prompt" "${var?}"
+  fi
+}
+
+ask PANEL_DOMAIN "Domain for the Panel (e.g. panel.example.com): "
+ask BILLING_DOMAIN "Domain for the billing storefront (e.g. billing.example.com): "
+ask NODE_DOMAIN "Domain for this VM's own game node (e.g. node-a.example.com): "
+ask ACME_EMAIL "Email for Let's Encrypt renewal notices: "
+ADMIN_EMAIL=${ADMIN_EMAIL:-$ACME_EMAIL}
+ADMIN_PASSWORD=${ADMIN_PASSWORD:-$(openssl rand -base64 18 | tr -d '/+=' | head -c 20)}
+
 if [[ ! -f .env ]]; then
-  cp .env.example .env
-  read -rp "Domain for the Panel (e.g. panel.example.com): " panel_domain
-  read -rp "Domain for the billing storefront (e.g. billing.example.com): " billing_domain
-  read -rp "Email for Let's Encrypt renewal notices: " acme_email
-
-  panel_db_password=$(openssl rand -hex 24)
-  panel_db_root_password=$(openssl rand -hex 24)
-  pay_db_password=$(openssl rand -hex 24)
-  pay_db_root_password=$(openssl rand -hex 24)
-
-  sed -i \
-    -e "s#^PANEL_DOMAIN=.*#PANEL_DOMAIN=${panel_domain}#" \
-    -e "s#^BILLING_DOMAIN=.*#BILLING_DOMAIN=${billing_domain}#" \
-    -e "s#^ACME_EMAIL=.*#ACME_EMAIL=${acme_email}#" \
-    -e "s#^PANEL_DB_PASSWORD=.*#PANEL_DB_PASSWORD=${panel_db_password}#" \
-    -e "s#^PANEL_DB_ROOT_PASSWORD=.*#PANEL_DB_ROOT_PASSWORD=${panel_db_root_password}#" \
-    -e "s#^PAYMENTER_DB_PASSWORD=.*#PAYMENTER_DB_PASSWORD=${pay_db_password}#" \
-    -e "s#^PAYMENTER_DB_ROOT_PASSWORD=.*#PAYMENTER_DB_ROOT_PASSWORD=${pay_db_root_password}#" \
-    .env
+  {
+    echo "PANEL_DOMAIN=${PANEL_DOMAIN}"
+    echo "BILLING_DOMAIN=${BILLING_DOMAIN}"
+    echo "NODE_DOMAIN=${NODE_DOMAIN}"
+    echo "ACME_EMAIL=${ACME_EMAIL}"
+    echo "PANEL_DB_PASSWORD=$(openssl rand -hex 24)"
+    echo "PANEL_DB_ROOT_PASSWORD=$(openssl rand -hex 24)"
+    echo "PAYMENTER_DB_PASSWORD=$(openssl rand -hex 24)"
+    echo "PAYMENTER_DB_ROOT_PASSWORD=$(openssl rand -hex 24)"
+  } > .env
   chmod 600 .env
   echo "Wrote .env with generated database passwords."
 else
@@ -58,6 +69,9 @@ ufw default allow outgoing
 ufw allow OpenSSH
 ufw allow 80/tcp
 ufw allow 443/tcp
+# Caddy (in the compose network) proxies NODE_DOMAIN -> this host's Wings
+# daemon on 8080; nothing outside that subnet may reach 8080 directly.
+ufw allow from 172.20.0.0/16 to any port 8080 proto tcp
 ufw --force enable
 
 echo "==> Creating data directories under /srv..."
@@ -70,22 +84,48 @@ echo "==> Pulling images and starting the stack..."
 docker compose pull
 docker compose up -d
 
-cat <<'EOF'
+echo "==> Waiting for the Panel to finish first-boot migrations..."
+admin_created=false
+for _ in $(seq 1 60); do
+  if docker compose exec -T panel php artisan p:user:make \
+      --email="${ADMIN_EMAIL}" --username=admin \
+      --name-first=Admin --name-last=Owner \
+      --password="${ADMIN_PASSWORD}" --admin=1 -n >/dev/null 2>&1; then
+    admin_created=true
+    break
+  fi
+  sleep 5
+done
 
-==> Panel node is up. Next steps:
+if $admin_created; then
+  echo "==> Panel admin user created."
+else
+  echo "==> Could not auto-create the admin user (it may already exist" \
+       "from a previous run). Create/inspect it manually with:" >&2
+  echo "      docker compose exec panel php artisan p:user:make" >&2
+fi
 
-1. Wait ~30s for first-boot migrations, then create your admin user:
-     docker compose exec panel php artisan p:user:make
+cat <<EOF
 
-2. Open https://<PANEL_DOMAIN> and log in as that admin. Create a Location,
-   then a Node for each Wings host (this VM's IP/FQDN, and your second VM's).
-   Copy the node's "Configuration" tab contents to /etc/pterodactyl/config.yml
-   on the matching Wings node (see ../wings-node/install.sh).
+==============================================================
+ Panel node is up.
 
-3. Open https://<BILLING_DOMAIN> to run Paymenter's first-run setup wizard,
-   then connect it to the Panel via an Application API key
-   (Panel admin -> Application API -> create key with server/user permissions).
+   Panel:    https://${PANEL_DOMAIN}
+   Billing:  https://${BILLING_DOMAIN}
+   Admin login: ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}
+     (change this password after first login)
 
-See ../README.md for the full walkthrough (eggs, allocations, Stripe/PayPal,
-backups, security hardening).
+ Next steps:
+
+ 1. Log in to the Panel and create an Application API key:
+      https://${PANEL_DOMAIN}/admin/api/new
+    (tick read/write for all resources). Use it with
+    ../provision.py to create the nodes for all your VMs.
+
+ 2. Open https://${BILLING_DOMAIN} to run Paymenter's first-run
+    setup wizard, then connect it to the Panel with another
+    Application API key.
+
+ See ../README.md for the full walkthrough.
+==============================================================
 EOF

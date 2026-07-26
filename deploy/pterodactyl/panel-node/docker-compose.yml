@@ -22,6 +22,7 @@ services:
     environment:
       PANEL_DOMAIN: ${PANEL_DOMAIN}
       BILLING_DOMAIN: ${BILLING_DOMAIN}
+      NODE_DOMAIN: ${NODE_DOMAIN}
       ACME_EMAIL: ${ACME_EMAIL}
     depends_on:
       - panel
