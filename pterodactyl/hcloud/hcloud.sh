@@ -226,9 +226,23 @@ ${rendered_config}
       if [ -n "\$STATUS_PORT" ]; then
         mkdir -p /run/ptero-status
         exec > >(tee -a /run/ptero-status/bootstrap.log) 2>&1
+        # This runs before 10-common.sh, so python3 is not guaranteed yet. The
+        # server is backgrounded with stderr discarded, so a missing interpreter
+        # would otherwise fail silently and leave the install unobservable.
+        if ! command -v python3 >/dev/null 2>&1; then
+          echo "installing python3 for the status endpoint"
+          DEBIAN_FRONTEND=noninteractive apt-get update -y >/dev/null 2>&1 || true
+          DEBIAN_FRONTEND=noninteractive apt-get install -y python3 >/dev/null 2>&1 || true
+        fi
+        # cloud-init's own log explains failures that happen before this script.
+        ln -sf /var/log/cloud-init-output.log /run/ptero-status/cloud-init.log || true
         python3 -m http.server "\$STATUS_PORT" --bind 0.0.0.0 \\
           --directory /run/ptero-status >/dev/null 2>&1 &
         STATUS_PID=\$!
+        sleep 1
+        kill -0 "\$STATUS_PID" 2>/dev/null \\
+          && echo "status endpoint listening on :\${STATUS_PORT}" \\
+          || echo "WARNING: status endpoint failed to start"
         finish() {
           rc=\$?
           echo "=== bootstrap finished with exit code \${rc} ==="
