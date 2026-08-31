@@ -1,0 +1,28 @@
+{
+  "name": "pawlette-dropship-automation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Turnkey order-fulfillment automation for a Shopify store: imports supplier products, auto-routes paid orders to the supplier, and syncs tracking/inventory back to Shopify.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "dev": "tsx watch src/server.ts",
+    "import-products": "tsx src/sync/importProducts.ts",
+    "sync-inventory": "tsx src/sync/syncInventory.ts",
+    "register-webhooks": "tsx src/shopify/registerWebhooks.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.9"
+  }
+}
