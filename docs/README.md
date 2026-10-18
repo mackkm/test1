@@ -68,8 +68,33 @@ Configuration (environment variables):
 | `POCKETCLAW_ALLOW_OPEN` | `1` = permit starting with no token on a non-loopback bind (otherwise refused). Only behind your own VPN/auth | *(off)* |
 | `TANDEM_MCP` | Connect a [Tandem Browser](https://tandembrowser.org): a streamable-http URL like `http://localhost:5173/mcp`, or a local path to Tandem's MCP `server.js` | *(off)* |
 | `TANDEM_MCP_TOKEN` | Bearer token for remote Tandem connections (e.g. over Tailscale) | *(none)* |
+| `POCKETCLAW_PARALLEL` | [Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp): `auto`, `on`, or `off`. App choices override this | `auto` |
 | `FIRECRAWL_API_KEY` | Enable [Firecrawl](https://firecrawl.dev) web tools (search/scrape/interact) | *(off)* |
 | `FIRECRAWL_MCP` | Override the Firecrawl MCP URL; set `https://mcp.firecrawl.dev/v2/mcp` for the keyless rate-limited tier | *(auto)* |
+
+### Free gateway web research
+
+New gateway installs use [Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp)
+for web search and page fetching at `https://search.parallel.ai/mcp`. Search uses
+Fast mode, with no Parallel account or API key. Ask the agent to research a topic
+and cite its sources, or to read a specific URL. This works in gateway chats and
+scheduled loops; API mode keeps its existing tools.
+
+In **Settings → Claude Code CLI → Parallel web search and page fetching**, choose
+**Auto**, **On**, or **Off**. Existing saved app settings keep Parallel off until
+you enable it. Auto follows `POCKETCLAW_PARALLEL` on the gateway: its default
+`auto` enables Parallel only when Firecrawl and `CLAUDE_ARGS` are unconfigured
+and no saved Claude Code MCP servers or tool permission settings are present.
+`on` explicitly enables it and `off` disables it. Configured Firecrawl, Tandem,
+and Claude Code tools remain available. Off disables this integration only.
+Custom CLI arguments and Claude Code permission rules still apply; if you restrict
+allowed tools, include `mcp__parallel__web_search` and `mcp__parallel__web_fetch`
+when you intend to allow them. No provider fallback is attempted after an error.
+
+The anonymous service has rate limits. Tool errors are reported by Claude Code;
+the gateway's existing chat inactivity timeout, loop time limit, and chat cancel
+control still stop stalled runs. Inference still needs your existing Claude Code
+login or Anthropic key. Gateway sandbox mode permits these read-only MCP tools.
 
 Example with everything on:
 
@@ -129,3 +154,8 @@ python3 -m http.server 8080
 | `manifest.webmanifest` + `icons/` | PWA install metadata |
 | `sw.js` | Service worker (offline app shell caching) |
 | `../server/server.js` | PocketClaw gateway — runs Claude Code CLI and streams to the app |
+
+## Gateway regression checks
+
+Run `node --test tests/parallel.test.js` from the repository root. These checks
+use Node's built-in test runner and need no packages or credentials.

@@ -28,6 +28,10 @@
  *                         URL like "http://localhost:5173/mcp" or a local path
  *                         to Tandem's MCP server.js
  *   TANDEM_MCP_TOKEN      bearer token for remote Tandem connections
+ *   POCKETCLAW_PARALLEL    "auto" (default), "on", or "off". Auto enables free
+ *                         Parallel search/fetch unless Firecrawl or CLAUDE_ARGS
+ *                         or saved tool settings are configured. App choices
+ *                         override this setting.
  *   FIRECRAWL_API_KEY     enable Firecrawl web tools (search/scrape/interact,
  *                         https://firecrawl.dev) through Firecrawl's hosted MCP
  *   FIRECRAWL_MCP         override/enable the Firecrawl MCP URL explicitly —
@@ -55,6 +59,9 @@ const FIRECRAWL_API_KEY = process.env.FIRECRAWL_API_KEY || "";
 const FIRECRAWL_MCP =
   process.env.FIRECRAWL_MCP ||
   (FIRECRAWL_API_KEY ? "https://mcp.firecrawl.dev/v2/mcp" : "");
+const PARALLEL_MODE = process.env.POCKETCLAW_PARALLEL || "auto";
+const PARALLEL_URL = "https://search.parallel.ai/mcp";
+const PARALLEL_USER_AGENT = "PocketClaw/1.0 (+https://github.com/mackkm/test1)";
 const DOCS_DIR = path.join(__dirname, "..", "docs");
 // Watchdogs: kill a claude child that stalls, so hung runs can't pile up and
 // exhaust a small VM (or silently disable a loop forever).
@@ -69,13 +76,14 @@ function isLoopback(h) {
 
 /* MCP superpowers for the agent:
  *  - Tandem Browser (tandembrowser.org) — a real browser it can drive
+ *  - Parallel (search.parallel.ai) — free anonymous search / page fetching
  *  - Firecrawl (firecrawl.dev) — web search / scrape / interact tools
  *
  * Config comes from two places, merged (client wins): server env vars set at
  * launch, and per-request overrides forwarded by the app so the user can toggle
  * these on from their phone. clientMcp is held in memory only, never on disk,
  * and reused for background loop runs. */
-let clientMcp = { tandem: null, firecrawl: null };
+let clientMcp = { tandem: null, firecrawl: null, parallel: null };
 
 /* Sandbox mode: run the agent locked down — in an isolated workspace, with only
  * safe read/research tools (no shell, no file writes, no destructive actions).
@@ -97,13 +105,43 @@ function safeExtraArgs(args) {
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--dangerously-skip-permissions" || a === "--bypassPermissions") continue;
-    if (a === "--permission-mode" || a === "--allowedTools" || a === "--disallowedTools") {
+    if (a === "--permission-mode" || a === "--allowedTools") {
       i++; // also skip its value
       continue;
     }
     out.push(a);
   }
   return out;
+}
+
+// A user's existing MCP servers or tool permissions are an intentional choice.
+// Only inspect whether they exist; leave their values and resolution to Claude.
+function hasSavedToolConfig() {
+  const hasChoices = (config) => config && (
+    Object.keys(config.mcpServers || {}).length || Object.keys(config.permissions || {}).length ||
+    config.allowedTools?.length || ["enabledMcpjsonServers", "disabledMcpjsonServers",
+      "disabledMcpServers", "enableAllProjectMcpServers", "allowedMcpServers", "deniedMcpServers"]
+      .some((key) => Object.hasOwn(config, key))
+  );
+  const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
+  const files = [path.join(configDir, "settings.json"), path.join(configDir, "settings.local.json")];
+  for (let dir = path.resolve(WORKSPACE); ; dir = path.dirname(dir)) {
+    files.push(path.join(dir, ".mcp.json"), path.join(dir, ".claude", "settings.json"),
+      path.join(dir, ".claude", "settings.local.json"));
+    if (path.dirname(dir) === dir) break;
+  }
+  files.push(process.env.CLAUDE_CONFIG_DIR
+    ? path.join(configDir, ".claude.json") : path.join(os.homedir(), ".claude.json"));
+  for (const file of files) {
+    try {
+      const config = JSON.parse(fs.readFileSync(file, "utf8"));
+      const project = config.projects && config.projects[path.resolve(WORKSPACE)];
+      if (hasChoices(config) || hasChoices(project)) return true;
+    } catch (err) {
+      if (err.code !== "ENOENT") return true; // malformed/unreadable choices need explicit opt-in
+    }
+  }
+  return false;
 }
 
 function activeMcpServers() {
@@ -132,6 +170,20 @@ function activeMcpServers() {
   if (fcOn && fcUrl) {
     servers.firecrawl = { type: "http", url: fcUrl };
     if (fcKey) servers.firecrawl.headers = { Authorization: "Bearer " + fcKey };
+  }
+
+  // Explicit app choices win. Auto only supplies an unconfigured gateway;
+  // configured search/CLI permissions never trigger an implicit fallback.
+  const parallelOn = clientMcp.parallel !== null
+    ? clientMcp.parallel
+    : PARALLEL_MODE === "on" || (PARALLEL_MODE === "auto" &&
+        !servers.firecrawl && !FIRECRAWL_MCP && !EXTRA_ARGS.length && !hasSavedToolConfig());
+  if (parallelOn) {
+    servers.parallel = {
+      type: "http",
+      url: PARALLEL_URL,
+      headers: { "User-Agent": PARALLEL_USER_AGENT },
+    };
   }
 
   return servers;
@@ -189,6 +241,12 @@ function serverDirectives() {
       "\n\n# Browser\nYour default browser is Tandem (the mcp__tandem__* tools). For " +
       "ANY web browsing, page interaction, form filling, or screenshots, use Tandem — " +
       "never launch Chrome, Chromium, or Playwright yourself.";
+  }
+  if (active.parallel) {
+    d +=
+      "\n\n# Web research\nUse mcp__parallel__web_search for current information " +
+      "and mcp__parallel__web_fetch to read source URLs. Cite the returned source " +
+      "URLs. If a tool fails, report the failure; do not silently switch providers.";
   }
   if (active.firecrawl) {
     d +=
@@ -294,6 +352,9 @@ async function handleChat(req, res) {
     // an object = "on with this config"; undefined leaves the current value.
     if ("tandem" in body.mcp) clientMcp.tandem = body.mcp.tandem || null;
     if ("firecrawl" in body.mcp) clientMcp.firecrawl = body.mcp.firecrawl || null;
+    if ("parallel" in body.mcp && (body.mcp.parallel === null || typeof body.mcp.parallel === "boolean")) {
+      clientMcp.parallel = body.mcp.parallel;
+    }
   }
   if (typeof body.sandbox === "boolean") clientSandbox = body.sandbox;
 
@@ -458,7 +519,7 @@ async function handleChat(req, res) {
   });
 
   // phone hung up / user tapped stop → stop the agent
-  req.on("close", () => {
+  res.on("close", () => {
     stopWatchdog();
     if (child.exitCode === null) child.kill("SIGTERM");
   });
@@ -610,6 +671,9 @@ async function handleLoops(req, res, url) {
     if (body.mcp && typeof body.mcp === "object") {
       if ("tandem" in body.mcp) clientMcp.tandem = body.mcp.tandem || null;
       if ("firecrawl" in body.mcp) clientMcp.firecrawl = body.mcp.firecrawl || null;
+      if ("parallel" in body.mcp && (body.mcp.parallel === null || typeof body.mcp.parallel === "boolean")) {
+        clientMcp.parallel = body.mcp.parallel;
+      }
     }
     if (typeof body.sandbox === "boolean") clientSandbox = body.sandbox;
     const incoming = Array.isArray(body.loops) ? body.loops : [];
@@ -685,6 +749,7 @@ const server = http.createServer((req, res) => {
       // whether each is currently active (env or app-forwarded)
       tandem: !!active.tandem,
       firecrawl: !!active.firecrawl,
+      parallel: !!active.parallel,
       sandboxEnv: SANDBOX_ENV,
       sandbox: sandboxActive(),
     }));
@@ -758,6 +823,7 @@ server.listen(PORT, HOST, () => {
   );
   console.log(`   tandem:     ${TANDEM_MCP ? TANDEM_MCP + " (browser control on)" : "off (set TANDEM_MCP to enable browser control)"}`);
   console.log(`   firecrawl:  ${FIRECRAWL_MCP ? "on" : "off (set FIRECRAWL_API_KEY to enable web tools)"}`);
+  console.log(`   parallel:   ${activeMcpServers().parallel ? "on (anonymous search/fetch)" : "off"}`);
   console.log(`   sandbox:    ${SANDBOX_ENV ? "ON — restricted tools, isolated workspace" : "off (set POCKETCLAW_SANDBOX=1, or toggle it in the app)"}`);
   console.log(`   loops:      ${loops.length} configured`);
   console.log(`\nOn your phone (same network), open http://<this-computer's-IP>:${PORT}`);

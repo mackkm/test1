@@ -215,6 +215,17 @@
             address on your phone. The agent runs there with Claude Code — tools, files and all.
             Leave URL empty when you opened the app from the gateway itself.</p>
 
+          <label for="cli-parallel-select">Parallel web search and page fetching</label>
+          <select id="cli-parallel-select">
+            <option value="auto">Auto (follow gateway setting)</option>
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </select>
+          <p class="hint">Free search and page fetching with no Parallel account or API key.
+            Auto enables it when no Firecrawl, custom CLI arguments, or saved Claude Code
+            tool configuration is present.
+            Existing installs keep it off until you choose On or Auto.</p>
+
           <label for="cli-tandem-toggle" class="row-label">
             <input id="cli-tandem-toggle" type="checkbox" />
             🌐 Tandem Browser — let the agent drive a real browser
