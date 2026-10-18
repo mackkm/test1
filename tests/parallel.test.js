@@ -93,8 +93,10 @@ test("sandbox allows research tools without broadening shell access", () => {
   assert.ok(allowed.includes("mcp__parallel"));
   assert.ok(!allowed.includes("Bash"));
   assert.ok(!allowed.includes("Write"));
-  const restricted = gateway({ POCKETCLAW_PARALLEL: "on", CLAUDE_ARGS: "--disallowedTools mcp__parallel__web_fetch" }).args();
-  assert.ok(restricted.includes("mcp__parallel__web_fetch"));
+  for (const sandbox of [false, true]) {
+    const restricted = gateway({ POCKETCLAW_PARALLEL: "on", CLAUDE_ARGS: "--disallowedTools mcp__parallel__web_fetch" }).args(sandbox);
+    assert.equal(restricted[restricted.indexOf("--disallowedTools") + 1], "mcp__parallel__web_fetch");
+  }
 });
 
 test("new app uses auto; saved app choices migrate to off and round trip", () => {

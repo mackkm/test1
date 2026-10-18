@@ -105,7 +105,7 @@ function safeExtraArgs(args) {
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--dangerously-skip-permissions" || a === "--bypassPermissions") continue;
-    if (a === "--permission-mode" || a === "--allowedTools" || a === "--disallowedTools") {
+    if (a === "--permission-mode" || a === "--allowedTools") {
       i++; // also skip its value
       continue;
     }
