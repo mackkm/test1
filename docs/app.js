@@ -46,6 +46,7 @@ const state = {
     cliTandemToken: "",
     cliFirecrawl: false,
     cliFirecrawlKey: "",
+    cliParallel: "auto", // "auto" follows gateway env; "on" / "off" override it
     cliSandbox: false,    // run the gateway agent restricted (no shell/writes)
   },
   convos: [],          // [{id, title, messages:[{role, content, images?}], updated}]
@@ -208,7 +209,10 @@ function loadState() {
       return fallback;
     }
   };
-  Object.assign(state.settings, read("pc_settings", {}) || {});
+  const savedSettings = read("pc_settings", null);
+  Object.assign(state.settings, savedSettings || {});
+  // Existing installations keep their tools until the user selects Parallel.
+  if (savedSettings && typeof savedSettings === "object" && !("cliParallel" in savedSettings)) state.settings.cliParallel = "off";
   state.convos = Array.isArray(read("pc_convos", [])) ? read("pc_convos", []) : [];
   state.loops = Array.isArray(read("pc_loops", [])) ? read("pc_loops", []) : [];
   state.memory = Array.isArray(read("pc_memory", [])) ? read("pc_memory", []) : [];
@@ -812,12 +816,12 @@ function gwHeaders() {
   return headers;
 }
 
-// Tandem/Firecrawl config to forward to the gateway. Each key: an object turns
-// it ON with that config, null turns it OFF, so the gateway always reflects the
-// app's current choice.
+// MCP choices forwarded to chats and loops. Parallel uses true/false for
+// explicit on/off and null to follow the gateway; Tandem/Firecrawl use objects.
 function gwMcpConfig() {
   const s = state.settings;
   return {
+    parallel: s.cliParallel === "on" ? true : s.cliParallel === "off" ? false : null,
     tandem: s.cliTandem && s.cliTandemUrl
       ? { url: s.cliTandemUrl, token: s.cliTandemToken || undefined }
       : null,
@@ -1654,6 +1658,7 @@ function openSettings() {
   $("cli-tandem-token").value = s.cliTandemToken;
   $("cli-firecrawl-toggle").checked = !!s.cliFirecrawl;
   $("cli-firecrawl-key").value = s.cliFirecrawlKey;
+  $("cli-parallel-select").value = s.cliParallel;
   $("cli-sandbox-toggle").checked = !!s.cliSandbox;
   $("selflearn-toggle").checked = s.selfLearn !== false;
   $("memory-edit").value = state.memory.join("\n");
@@ -1723,6 +1728,7 @@ function saveSettingsFromForm() {
   s.cliTandemToken = $("cli-tandem-token").value.trim();
   s.cliFirecrawl = $("cli-firecrawl-toggle").checked;
   s.cliFirecrawlKey = $("cli-firecrawl-key").value.trim();
+  s.cliParallel = $("cli-parallel-select").value;
   s.cliSandbox = $("cli-sandbox-toggle").checked;
   s.selfLearn = $("selflearn-toggle").checked;
   state.memory = $("memory-edit").value
